@@ -1,0 +1,3283 @@
+//PLX
+ 1/*********************************************************************/
+  /***                    ICBP020E                                   ***/
+  /*********************************************************************/
+  /* PROGRAMMER: ED MADARANG, (PREPM)                                  */
+  /* MAINTENANCE GROUP: PRODUCTION PROGRAMMING                         */
+  /* PROGRAM FUNCTION:                                                 */
+  /*   MICROWAND CONVERSION OF UK DATA COLLECTED TO OS DATASETS.       */
+  /*   CONVERTS HAND HELD MICROWAND DATA INTO ICAAUDIT RECORD          */
+  /*   STRUCTURE (PLSTRUC.ICAREC).                                     */
+  /*                                                                   */
+  /* CREATES OR APPENDS RECORDS TO THE FOLLOWING DATASETS:             */
+  /*                                                                   */
+  /* INPUT:                                                            */
+  /*                                                                   */
+  /* DDNAME   PLSTRUC      FILE NAME                       CREATED BY  */
+  /* -------  ----------   ------------------------------  ----------  */
+  /* IMWFILE  N/A          RAW COLLECTED DATA FILE         IRI.MW2MAIN */
+  /* ICAFILE  ICAREC       ICAAUDIT.W####.S*****                       */
+  /*    (CREATED BY IRI.MW2MAIN, CONVERTED RAW DATA FILE)              */
+  /* DICTIONARY CALLED BY PLENTRY.DCTREAD                              */
+  /*    (RETRIEVES BRAND DESCRIPTION,GENERATION,KEYCAT)                */
+  /*                                                                   */
+  /* OUTPUT:                                                           */
+  /*                                                                   */
+  /* DDNAME   PLSTRUC     FILE NAME/REPORT                USED BY      */
+  /* -------  ----------  ------------------------------  ----------   */
+  /* OCAFILE  ICAREC      ICAAUDIT.W####.S*****                        */
+  /* OPRODFL  ICARECP     ICAAUDIT.PRODUCT.W####.S*****                */
+  /* OPRIORWK ICAREC      ICAAUDIT.                                    */
+  /* OSTKOUT  ICAREC      ICAAUDIT.                                    */
+  /*                                                                   */
+  /* EXTERNALLY CALLED SUBROUTINES:                                    */
+  /*    MODULE              DESCRIPTION                                */
+  /*    --------------      ---------------------------                */
+  /*    PLENTRY.UCPTRA                                                 */
+  /*    PLENTRY.CHKTRAK                                                */
+  /*    PLENTRY.DICTREAD                                               */
+  /*                                                                   */
+  /* INTERNAL SUBROUTINES:                                             */
+  /*    PROCEDURE NAME        DESCRIPTION                              */
+  /*    ------------------    ------------------------------           */
+  /*    PROCESS_ENDING_ICA    PROCESS ENDING RECORD OF THE ICA         */
+  /*    PROCESS_HEADER_REC    PROCESS HEADER RECORD OF THE IMWFILE     */
+  /*    PROCESS_ICA_REC       PROCESS ICA RECORD OF THE IMWFILE        */
+  /*    PROCESS_UPC_REC       PROCESS UPC/BRAND/CATEGORY FROM IMWFILE  */
+  /*    PROCESS_VARIABLES     PROCESS REMAINING VARIABLES OF IMWFILE   */
+  /*    READ_IMWFILE          READS THE NEXT RECORD OF THE IMWFILE     */
+  /*                                                                   */
+  /* INVOKED BY: XXXXXXXXXX (OPTIONAL PROC NAME) XXXXXXXXXXXXXXXXXXXXX */
+  /*                                                                   */
+  /* EXECUTION MODE: BATCH      (BATCH/INTERACTIVE/ONLINE)             */
+  /*                                                                   */
+  /* CICS_SPECIFIC INFORMATION:                                        */
+  /* CICS TASK: N/A                                                    */
+  /* CICS MAP: N/A                                                     */
+  /*                                                                   */
+  /* MISCELLANEOUS EXTRA NOTES:                                        */
+  /*    ICAFILE AND THE OCAFILE  ARE THE SAME. THE ICAFILE IS USED TO  */
+  /*    OBTAIN THE LATEST EVENT NUMBER IF RECORDS EXIST IN THE FILE.   */
+  /*    THE OCAFILE  IS USED TO WRITE THE CONVERTED RECORDS TO THE     */
+  /*    EXISTING FILE OR/AND CREATES THE FILE.                         */
+  /*                                                                   */
+  /*********************************************************************/
+  
+  /*-------------------------------------------------------------------*/
+  /* DATE      ID     REQ #  LVL  CHANGE DESCRIPTION                   */
+  /* ========  =====  ====== ===  ==================================== */
+  /* MM/DD/YY  PREPM         00   INITIAL RELEASE                      */
+  /* ----------------------------------------------------------------- */
+  /* 02/18/94  PRTJZ              CHANGES MADE TO ADD DOCUMENTATION    */
+  /*                              AND MOVE LINES OF CODE TO SEPERATE   */
+  /*                              PROCEDURES (INCREMENT_UPC_CNT AND    */
+  /*                              UPC_ADJUSTMENT) IN INITIAL EFFORTS   */
+  /*                              TO MODIFY CODE FOR USE IN CONVERTING */
+  /*                              DATA FROM EUROPEAN COUNTRIES.        */
+  /* ----------------------------------------------------------------- */
+  /* 03/07/94  PREBC              TRANSFERRED CODE THAT PROCESSES 'M'  */
+  /*                              RECORD FROM MAINLINE TO A SEPERATE   */
+  /*                              PROCEDURE PROCESS_M_RECORD.          */
+  /* ----------------------------------------------------------------- */
+  /* 03/08/94 PRTJZ               COMMENTED OUT CODE REGARDING CIGWKLY */
+  /*                              IN PROCESS_VARIABLES PROCEDURE AND   */
+  /*                              FORMAT_OCAFILE PROCEDURE.            */
+  /*-------------------------------------------------------------------*/
+  /* 03/08/94 PRTJZ               RE-CODED LINES IN CLEAR_PRICE_       */
+  /*                              SAVINGS_VARIABLES PROCEDURE TO BE    */
+  /*                              EXECUTED IN A "DO LOOP".             */
+  /*-------------------------------------------------------------------*/
+  /* 03/08/94 PRTJZ               RE-CODED GET_ADV_SHOP_DOMCODE PROC.  */
+  /*                              USING A "SELECT' STATEMENT.          */
+  /*-------------------------------------------------------------------*/
+  /* 03/08/94 PRTJZ               CHANGED NAME OF GET_MKT_DESCRIPT     */
+  /*                              PROC. TO GET_UPC_DESCRIPT PROC.      */
+  /*-------------------------------------------------------------------*/
+  /* 03/08/94 PRTJZ               CHANGED NAME OF DETERMIN_LOCATION    */
+  /*                              PROC. TO GET_DISPWKLY_DOMCODE PROC.  */
+  /*-------------------------------------------------------------------*/
+  /* 03/08/94 PRTJZ               COPIED SECTION OF CODE FROM FORMAT_  */
+  /*                              OCAFILE PROC. TO EXTERNAL PROC.      */
+  /*                              CALLED GET_OTHER_DOMCODE AND         */
+  /*                              REFORMATTED THE SYNTAX USING A       */
+  /*                              "SELECT" STATEMENT.                  */
+  /*-------------------------------------------------------------------*/
+  /* 06/21/94 PREBC               NOW INCLUDING PLINC.EUROCONV         */
+  /*-------------------------------------------------------------------*/
+  /* 07/27/94 PRTJZ               CODE ADDED TO PLINC.EUROCONV TO WRITE*/
+  /*                              QID, RUN_TIME AND RUN_DATE TO THE    */
+  /*                              UK PRODUCTIVITY FILE.                */
+  /*-------------------------------------------------------------------*/
+  /* 08/08/94 PREBC               ADV_HOME_DOM_QUEST#,                 */
+  /*                              ADV_SHOP_DOM_QUEST#,                 */
+  /*                              DISPWKLY_DOM_QUEST#,                 */
+  /*                              FEATURE_DOM_QUEST# SET BACK TO UK    */
+  /*                              DEFAULTS.                            */
+  /*-------------------------------------------------------------------*/
+  /* 07/29/96 PRJDH               UPCTRA AND CKTRACK NO LONGER INCLUDED*/
+  /*-------------------------------------------------------------------*/
+  /* 08/26/96 PREBC               FIXED PRICE PROCESSING FOR CUSTOM    */
+  /*                              AUDITS.                              */
+  /*-------------------------------------------------------------------*/
+  /* 06/19/00 PRJJD  *10*         EXPLICITLY OPENED AND CLOSED         */
+  /*                              DDNAMES OPRIORWK AND OCAFILE.        */
+  /*-------------------------------------------------------------------*/
+  /* Macro definitions from PLINC.MACROS are used in this compilation */
+  %DCL ATTR_DICT     CHAR      /* CONTROLS DISPLAY IN PLINC.DCTEDIT   */;
+  %    ATTR_DICT     = '';
+  %DEACTIVATE        ATTR_DICT;
+  %DCL VENDBRAN_TYPE CHAR      /* CONTROLS FORMAT IN PLSTRUC.DICT432  */;
+  %    VENDBRAN_TYPE = 'NORM'  /* 'REFER' IS THE OTHER OPTION         */;
+  %DEACTIVATE        VENDBRAN_TYPE;
+  %DCL DICT_TYPE     CHAR      /* CONTROLS FORMAT IN PLSTRUC.DICT432  */;
+  %    DICT_TYPE     = 'BITS'  /* 'CHAR' IS THE OTHER OPTION          */;
+  %DEACTIVATE        DICT_TYPE;
+  %DCL IRITEM_TYPE   CHAR      /* CONTROLS FORMAT IN PLSTRUC.IRITEM   */;
+  %    IRITEM_TYPE   = 'BITS'  /* 'CHAR' IS THE OTHER OPTION          */;
+  %DEACTIVATE        IRITEM_TYPE;
+  %DCL PROMO_TYPE    CHAR      /* CONTROLS FORMAT IN PLSTRUC.RJRMOVEC */;
+  %    PROMO_TYPE   = ''       /* 'RJR' IS THE OTHER OPTION           */;
+  %DEACTIVATE        PROMO_TYPE;
+  %DCL KEY_TYPE      CHAR      /* CONTROLS FORMAT IN PLSTRUC.KEYREC   */;
+  %    KEY_TYPE      = 'NORM'  /* 'REFER' IS THE OTHER OPTION         */;
+  %DEACTIVATE        KEY_TYPE;
+  %DCL BRAND_TYPE    CHAR      /* CONTROLS FORMAT IN PLSTRUC.BRANDREC */;
+  %    BRAND_TYPE    = 'NORM'  /* 'REFER' IS THE OTHER OPTION         */;
+  %DEACTIVATE        BRAND_TYPE;
+  %DCL MASTEREC_TYPE CHAR      /* CONTROLS FORMAT IN PLSTRUC.MASTEREC */;
+  %    MASTEREC_TYPE = 'FULL'  /* 'CARD' IS THE OTHER OPTION          */;
+  %DEACTIVATE        MASTEREC_TYPE;
+  %DCL UPCOUT_TYPE   CHAR      /* CONTROLS FORMAT IN PLSTRUC.UPCREC   */;
+  %    UPCOUT_TYPE   = 'NEW'   /* 'OLD' IS THE OTHER OPTION           */;
+  %DEACTIVATE        UPCOUT_TYPE;
+  %DCL CCFREC_TYPE   CHAR      /* CONTROLS FORMAT IN PLSTRUC.CCFREC   */;
+  %    CCFREC_TYPE   = 'LONG'  /* 'SHORT' IS THE OTHER OPTION         */;
+  %DEACTIVATE        CCFREC_TYPE;
+  %DCL IW_VERSION    CHAR      /* CONTROLS FORMAT IN PLSTRUC.IWXXXX   */;
+  %    IW_VERSION    = '0'     /* VALID VALUES ARE 0 AND 1            */;
+  %DEACTIVATE        IW_VERSION;
+  %DCL IW_TRIM       CHAR      /* TRIM SIZE OF IWSTUB (IN IWINIT)     */;
+  %    IW_TRIM       = 'N'     /* THIS IS NOT A DEFAULT ASSUMPTION    */;
+  %DEACTIVATE        IW_TRIM;
+  %DCL IWGEOG_1DIM   CHAR      /* NAME OF THE DIMENSION VARIABLE FOR  */;
+  %    IWGEOG_1DIM   = '????'  /* IWGEOG.DEMO - IWHEAD OR IWDATA.     */;
+  %DEACTIVATE        IWGEOG_1DIM;
+  %DCL ENVIRONMENT   CHAR;
+  %    ENVIRONMENT   = 'BATCH'   /* THE OTHER CASE IS 'CICS' */;
+  %DEACTIVATE        ENVIRONMENT;
+  %DCL DEBUG         CHAR;
+  %    DEBUG         = 'N';
+  %DEACTIVATE        DEBUG       /* DON'T WANT THIS TO SUBSTITUTE  */;
+  %DCL PROGRAM       CHAR        /* THE NAME OF THE PROGRAM WE     */;
+  %    PROGRAM       = '????'    /*   ARE COMPILING                */;
+  %DEACTIVATE        PROGRAM     /* DON'T WANT THIS TO SUBSTITUTE  */;
+  %DCL FALSE         CHAR;
+  %    FALSE         = '(''0''B)';
+  %DCL TRUE          CHAR;
+  %    TRUE          = '(''1''B)';
+  %DCL FOREVER       CHAR;
+  %    FOREVER       = 'WHILE(''1''B)';
+  %DCL SPACE         CHAR;
+  %    SPACE         = '('' '')';
+  %DCL SPACE2        CHAR;
+  %    SPACE2        = '(''  '')';
+  %DCL SPACE3        CHAR;
+  %    SPACE3        = '(''   '')';
+  %DCL SPACE4        CHAR;
+  %    SPACE4        = '(''    '')';
+  %DCL SPACE5        CHAR;
+  %    SPACE5        = '(''     '')';
+  %DCL SPACE6        CHAR;
+  %    SPACE6        = '(''      '')';
+  %DCL SPACE7        CHAR;
+  %    SPACE7        = '(''       '')';
+  %DCL SPACE8        CHAR;
+  %    SPACE8        = '(''        '')';
+  %DCL SPACE9        CHAR;
+  %    SPACE9        = '(''         '')';
+  %DCL SPACE10       CHAR;
+  %    SPACE10       = '(''          '')';
+  %DCL SPACE11       CHAR;
+  %    SPACE11       = '(''           '')';
+  %DCL SPACE12       CHAR;
+  %    SPACE12       = '(''            '')';
+  %DCL SPACE13       CHAR;
+  %    SPACE13       = '(''             '')';
+  %DCL SPACE14       CHAR;
+  %    SPACE14       = '(''              '')';
+  %DCL SPACE15       CHAR;
+  %    SPACE15       = '(''               '')';
+  %DCL SPACE16       CHAR;
+  %    SPACE16       = '(''                '')';
+  %DCL SPACE17       CHAR;
+  %    SPACE17       = '(''                 '')';
+  %DCL SPACE18       CHAR;
+  %    SPACE18       = '(''                  '')';
+  %DCL SPACE19       CHAR;
+  %    SPACE19       = '(''                   '')';
+  %DCL SPACE20       CHAR;
+  %    SPACE20       = '(''                    '')';
+  %DCL ENDIF         CHAR;
+  %    ENDIF         = 'END /* OF THE IF */';
+  %DCL ENDELSE       CHAR;
+  %    ENDELSE       = 'END /* OF THE ELSE */';
+  %DCL ENDELSEIF     CHAR;
+  %    ENDELSEIF     = 'END /* OF THE ELSEIF */';
+  %DCL ENDWHEN       CHAR;
+  %    ENDWHEN       = 'END /* OF THE WHEN */';
+  %DCL ENDDO         CHAR;
+  %    ENDDO         = 'END /* OF THE DO */';
+  %DCL ENDWHILE      CHAR;
+  %    ENDWHILE      = 'END /* OF THE WHILE */';
+  %DCL ENDUNTIL      CHAR;
+  %    ENDUNTIL      = 'END /* OF THE UNTIL */';
+  %DCL ENDSELECT     CHAR;
+  %    ENDSELECT     = 'END /* OF THE SELECT */';
+  %DCL ENDBEGIN      CHAR;
+  %    ENDBEGIN      = 'END /* OF THE BEGIN */';
+  %DCL ENDPROC       CHAR;
+  %    ENDPROC       = 'END /* OF THE PROCEDURE */';
+  %DCL ENDOTHERWISE  CHAR;
+  %    ENDOTHERWISE  = 'END /* OF THE OTHERWISE */';
+  %$CHARL71: PROC(TEXT)             /* PAD THE ARGUMENT TEXT TO A  */
+             RETURNS(CHAR);         /*   MULTIPLE OF 71 CHARACTERS */
+  DCL TEXT   CHAR;
+  DCL RESULT CHAR;
+  DCL LENGTH BUILTIN;
+  DCL LEN    FIXED;
+  DCL PAD    FIXED;
+  LEN    = LENGTH(TEXT);            /* LENGTH OF ARGUMENT */
+  PAD    = (LEN/71+1)*71-LEN;       /* REQUIRED PADDING */
+  RESULT = TEXT;
+  DO LEN = 1 TO PAD;
+     RESULT = RESULT || ' ';
+     END;
+  RETURN(RESULT);
+  %END      $CHARL71;
+  %ACTIVATE $CHARL71;
+  %DEBUG_INIT: PROC(VALUE) RETURNS(CHAR);
+  DCL VALUE  CHAR;
+  DCL RESULT CHAR;
+  IF DEBUG ^= 'Y' THEN RETURN('')     /* IF NO DEBUG CODE    */ ;
+  RESULT = 'INIT(' || VALUE || ')'    /* BUILD RESULT STRING */ ;
+  RETURN(RESULT);
+  %END      DEBUG_INIT;
+  %ACTIVATE DEBUG_INIT;
+  %TOBIT16: PROC(SOURCE,         /* GENERATE CODE TO ASSIGN A VALUE */
+                 TARGET)         /* TO A 16BIT LOGICAL INTEGER      */
+                 RETURNS(CHAR);
+  DCL SOURCE CHAR;
+  DCL TARGET CHAR;
+  DCL WORK   CHAR;
+  TOBIT16_DCL = 'Y'                 /* INDICATE DCL REQUIRED */;
+  WORK =
+  $CHARL71(' /* ' || TARGET || ' = ' || SOURCE || ' */')         ||
+  $CHARL71('    TOBIT16_WORD = ' || SOURCE || ';')               ||
+  $CHARL71('    IF TOBIT16_WORD > 65535 THEN SIGNAL OVERFLOW;')  ||
+           '    ' || TARGET || ' = SUBSTR(UNSPEC(TOBIT16_WORD),17,16)';
+  RETURN(WORK);
+  %END        TOBIT16;
+  %ACTIVATE   TOBIT16;
+  %DCL        TOBIT16_DCL CHAR      /* FIRST TIME SWITCH */;
+  %           TOBIT16_DCL = 'N';
+  %DEACTIVATE TOBIT16_DCL;
+  ICBP020E: PROC OPTIONS(MAIN) REORDER;
+  
+1 /*********************************************************************/
+  /*                   FILE DECLARATIONS                               */
+  /*********************************************************************/
+  
+  DCL IMWFILE     FILE RECORD INPUT SEQUENTIAL;
+  DCL ISTXREF     FILE RECORD INPUT SEQUENTIAL;
+  DCL ISTATFL     FILE RECORD UPDATE SEQUENTIAL;
+  DCL ICAFILE     FILE RECORD INPUT  SEQUENTIAL ENV(V);
+  DCL ITRANFL     FILE RECORD INPUT  SEQUENTIAL;
+  
+  DCL OCAFILE     FILE RECORD OUTPUT SEQUENTIAL ENV(VB);
+  DCL OPRODFL     FILE RECORD OUTPUT SEQUENTIAL;
+  DCL OPRIORWK    FILE RECORD OUTPUT SEQUENTIAL ENV(VB);
+  DCL OSTKOUT     FILE RECORD OUTPUT SEQUENTIAL ENV(VB);
+  
+  DCL SYSPRINT    FILE STREAM OUTPUT;
+  
+  /*********************************************************************/
+  /*                   BUILTIN FUNCTIONS                               */
+  /*********************************************************************/
+  
+  DCL ADDR                         BUILTIN;
+  DCL STRING                       BUILTIN;
+  DCL SUBSTR                       BUILTIN;
+  DCL ONCODE                       BUILTIN;
+  DCL VERIFY                       BUILTIN;
+  DCL LENGTH                       BUILTIN;
+  DCL INDEX                        BUILTIN;
+  DCL TIME                         BUILTIN;
+  DCL DATE                         BUILTIN;
+  
+  /*********************************************************************/
+  /*                   FLAGS                                           */
+  /*********************************************************************/
+  
+  DCL EOF_IMWFILE                  BIT(1)         INIT('0'B);
+  DCL EOF_ISTXREF                  BIT(1)         INIT('0'B);
+  DCL EOF_ISTATFL                  BIT(1)         INIT('0'B);
+  DCL EOF_ICAFILE                  BIT(1)         INIT('0'B);
+  DCL EOF_ITRANFL                  BIT(1)         INIT('0'B);
+  
+  DCL AUDIT_SW                     BIT(1)         INIT('0'B);
+  DCL DELETED_A_UPC                BIT(1)         INIT('0'B);
+  DCL OPEN_OCAFILE                 BIT(1)         INIT('1'B);
+  
+  DCL FLG_CUST_AUD_DATA            BIT(1)         INIT('0'B);
+  /*********************************************************************/
+  /*                   COUNTERS                                        */
+  /*********************************************************************/
+  
+  DCL INICA_EVENT_CNT              FIXED BIN(31)  INIT(0);
+  DCL UPC_CNT                      FIXED BIN(31)  INIT(0);
+  DCL SCANNED_UPC_CNT              FIXED BIN(31)  INIT(0);
+  DCL MANUAL_UPC_CNT               FIXED BIN(31)  INIT(0);
+  DCL DELETE_UPC_CNT               FIXED BIN(31)  INIT(0);
+  DCL TRN_CNT                      FIXED BIN(31)  INIT(0);
+  
+  /*********************************************************************/
+  /*                TEMPORARY HOLD AREAS                               */
+  /*********************************************************************/
+  
+  DCL ICA_HOLD                     FIXED BIN(31)  INIT(0);
+  DCL STORE_HOLD                   FIXED BIN(31)  INIT(0);
+  DCL WEEK_HOLD                    FIXED BIN(31)  INIT(0);
+  DCL ORIGINAL_WEEK                FIXED BIN(31)  INIT(0);
+  DCL STAT_STORE_NUM               FIXED DEC(04)  INIT(0);
+  DCL STAT_ICA_NUM                 FIXED DEC(06)  INIT(0);
+  
+  /*********************************************************************/
+  /*                   TOTALS                                          */
+  /*********************************************************************/
+  
+  DCL EVENT_ID_TOTAL               FIXED BIN(31)  INIT(0);
+  
+  /*********************************************************************/
+  /*                   SUBSCRIPT FIELDS                                */
+  /*********************************************************************/
+  
+  DCL I,J,W                        FIXED BIN(31)  INIT(0);
+  
+  /*********************************************************************/
+  /*                   LENGTH FIELDS                                   */
+  /*********************************************************************/
+  
+  DCL RECORD_LENGTH                FIXED BIN(31)  INIT(0);
+  DCL VARIABLE_LENGTH              FIXED BIN(31)  INIT(0);
+  
+  
+  /*********************************************************************/
+  /*                   PICTURE FIELDS                                  */
+  /*********************************************************************/
+  
+  DCL VAR_REC_TYPE                 PIC'99';
+  DCL GENERATION_9                 PIC'9';
+  DCL EVENT_9                      PIC'9999';
+  DCL PIC_999999                   PIC'999999';
+  DCL PIC_99999                    PIC'99999';
+  DCL PIC_9999                     PIC'9999';
+  
+  /*********************************************************************/
+  /*                   MISCELLANEOUS FIELDS                            */
+  /*********************************************************************/
+  
+  DCL INCNT_ID                     FIXED BIN(31)  INIT(0);
+  DCL EVENT_ID                     FIXED BIN(31)  INIT(0);
+  DCL UPC_NOTFND_DICT_SCAN         FIXED BIN(31)  INIT(0);
+  DCL UPC_NOTFND_DICT_MAN          FIXED BIN(31)  INIT(0);
+  
+  DCL OPRODFL_WEEK                 FIXED DEC(04)  INIT(0);
+  
+  DCL DICT_ERROR                   BIT(1)         INIT('0'B);
+  DCL TRACK_ITM                    BIT(1)         INIT('0'B);
+  DCL ERROR                        FIXED BIN(31)  INIT(0);
+  DCL MARKET                       FIXED BIN(15)  INIT(0);
+  DCL RETC                         FIXED BIN(15)  INIT(0);
+  
+  DCL REC_TYPE                     CHAR(01)       INIT('');
+  DCL REC_TYPE_TWO                 CHAR(02)       INIT('');
+  DCL PREV_REC_TYPE                CHAR(01)       INIT('');
+  DCL PREV_REC_TYPE_TWO            CHAR(02)       INIT('');
+  DCL WRITE_POSTWK                 CHAR(01)       INIT('');
+  DCL VAR_TYPE_HOLD                FIXED BIN(15)  INIT(0);
+  
+  DCL 1 VARIABLE(48),
+        5 VALUE                    CHAR(07);
+  
+  DCL 1 COMMON(48),
+        5 VALUE                    CHAR(07);
+  
+  DCL VARIABLE_HOLD2(29)           BIT(1);
+  DCL VARIABLE_HOLD3               BIT(29) BASED(ADDR(VARIABLE_HOLD2));
+  DCL VALUE_CHAR                   CHAR(07)       VARYING;
+  DCL VAR_VALUE_HOLD               CHAR(278)      VARYING;
+  DCL ICA_VALUE_HOLD CHAR(278) BASED(ADDR(OICA.ICA_VARIABLES));
+  DCL QUESTION_VALUES              CHAR(10)       VARYING;
+  
+  DCL IN_REC                       CHAR(100)      INIT('');
+  DCL ICAREC_STR                   CHAR(313) VARYING  INIT('');
+  DCL ICA_SHORT_NAME               CHAR(08)       INIT('');
+  DCL ICA_SHORT_NAME_4             CHAR(04)       INIT('');
+  DCL WRITE_UPC                    CHAR(01)       INIT('N');
+  DCL WRITE_PRIORWK                CHAR(01)       INIT('N');
+  DCL EVENT_BIN                    FIXED BIN(31)  INIT(0);
+  DCL MSG_TXT                      CHAR(80)       INIT('');
+  
+1 /*********************************************************************/
+  /*               FILE STRUCTURE DECLARATIONS                         */
+  /*********************************************************************/
+  
+  /* FILE STRUCTURE FOR FILE ICAFILE (CONVERTED RAW DATA THAT EXISTS)  */
+  DCL INFO_PTR    POINTER;
+  DCL 1 INFO UNALIGNED  BASED(INFO_PTR),
+        5 FIXED_FIELD,
+          10 WEEK                     FIXED DECIMAL(4),
+          10 ICA_NUMBER               FIXED DECIMAL(6),
+          10 STORE                    FIXED DECIMAL(6),
+          10 ST_OVERIDE               CHAR(1),
+          10 EVENT                    FIXED DECIMAL(4),
+          10 SYSTEM                   FIXED DECIMAL(2),
+          10 VENDOR                   FIXED DECIMAL(6),
+          10 ITEM                     FIXED DECIMAL(6),
+          10 GENERATION               CHAR(1),
+          10 UPC_MAN_OVERIDE          CHAR(1),
+          10 KEYCAT                   FIXED DECIMAL(4),
+          10 DOMINANC_CODE            CHAR(1),
+          10 SOURCE_CODE              CHAR(1),
+          10 DESCRIPTION              CHAR(32),
+          10 QC_FLAG                  CHAR(1),
+        5 ICA_RECIPE,
+          10 FACINGS               BIT(1),
+          10 EXPOSURES             BIT(1),
+          10 UNITS_DEEP            BIT(1),
+          10 UNITS_HIGH            BIT(1),
+          10 SHELF_INVENTORY       BIT(1),
+          10 SHELF_CAPACITY        BIT(1),
+          10 DISP_INVENTORY        BIT(1),
+          10 DISP_CAPACITY         BIT(1),
+          10 SHELF_FEET            BIT(1),
+          10 AISLE_FEET            BIT(1),
+          10 SHELF_NUMBER          BIT(1),
+          10 #SHELVES_IN_SECTION   BIT(1),
+          10 PRICE                 BIT(1),
+          10 PRODUCT_ADJACENCY     BIT(1),
+          10 SECTION_LOCATION      BIT(1),
+          10 DISP_LOCATION         BIT(1),
+          10 DISP_TYPE             BIT(1),
+          10 STOCKING_TYPE         BIT(1),
+          10 BLANK_VARIABLE1       BIT(1),
+          10 BLANK_VARIABLE2       BIT(1),
+          10 BLANK_VARIABLE3       BIT(1),
+          10 PRESENCE_OF_POS       BIT(1),
+          10 VARIABLE_QUESTIONS    BIT(1),
+          10 UNUSED_BITS           BIT(25),
+        5 ICA_VAR_LENGTH        FIXED BIN(15),
+        5 ICA_VARIABLES(278 REFER(INFO.ICA_VAR_LENGTH)) CHAR(1);
+  
+  /* FILE STRUCTURE FOR FILE OCAFILE (CONVERTED RAW DATA) */
+  DCL OICA_PTR   POINTER;
+  DCL 1 OICA UNALIGNED BASED(OICA_PTR),
+        5 FIXED_FIELD,
+          10 WEEK                     FIXED DECIMAL(4),
+          10 ICA_NUMBER               FIXED DECIMAL(6),
+          10 STORE                    FIXED DECIMAL(6),
+          10 ST_OVERIDE               CHAR(1),
+          10 EVENT                    FIXED DECIMAL(4),
+          10 SYSTEM                   FIXED DECIMAL(2),
+          10 VENDOR                   FIXED DECIMAL(6),
+          10 ITEM                     FIXED DECIMAL(6),
+          10 GENERATION               CHAR(1),
+          10 UPC_MAN_OVERIDE          CHAR(1),
+          10 KEYCAT                   FIXED DECIMAL(4),
+          10 DOMINANC_CODE            CHAR(1),
+          10 SOURCE_CODE              CHAR(1),
+          10 DESCRIPTION              CHAR(32),
+          10 QC_FLAG                  CHAR(1),
+        5 ICA_RECIPE,
+          10 FACINGS               BIT(1),
+          10 EXPOSURES             BIT(1),
+          10 UNITS_DEEP            BIT(1),
+          10 UNITS_HIGH            BIT(1),
+          10 SHELF_INVENTORY       BIT(1),
+          10 SHELF_CAPACITY        BIT(1),
+          10 DISP_INVENTORY        BIT(1),
+          10 DISP_CAPACITY         BIT(1),
+          10 SHELF_FEET            BIT(1),
+          10 AISLE_FEET            BIT(1),
+          10 SHELF_NUMBER          BIT(1),
+          10 #SHELVES_IN_SECTION   BIT(1),
+          10 PRICE                 BIT(1),
+          10 PRODUCT_ADJACENCY     BIT(1),
+          10 SECTION_LOCATION      BIT(1),
+          10 DISP_LOCATION         BIT(1),
+          10 DISP_TYPE             BIT(1),
+          10 STOCKING_TYPE         BIT(1),
+          10 BLANK_VARIABLE1       BIT(1),
+          10 BLANK_VARIABLE2       BIT(1),
+          10 BLANK_VARIABLE3       BIT(1),
+          10 PRESENCE_OF_POS       BIT(1),
+          10 VARIABLE_QUESTIONS    BIT(1),
+          10 UNUSED_BITS           BIT(25),
+        5 ICA_VAR_LENGTH        FIXED BIN(15),
+        5 ICA_VARIABLES(278 REFER(OICA.ICA_VAR_LENGTH)) CHAR(1);
+  
+  /* FILE STRUCTURE FOR FILE ITRANFL  (TRANSLATION TO ENGLISH)         */
+  DCL 1 TRAN (30),
+       5 EURO_PHRASE               CHAR(8),
+       5 ENGLISH_PHRASE            CHAR(8),
+       5 REST_OF_RECORD            CHAR(64);
+  
+  /* FILE STRUCTURE FOR FILE OPRODFL (PRODUCTIVITY RECORD STRUCTURE)   */
+  DCL 1 OPROD UNALIGNED,
+  /*********************** ICAPROD ***************************
+  /*         ICA COLLECTION PRODUCTIVITY RECORD.           ***
+  /*    TOTAL RECORD LENGTH=                               ***
+  /*********************** ICAPROD ***************************
+  DCL 1 ICAPROD,   ***/
+        5 WEEK                     FIXED DECIMAL (4),
+        5 ICA_NUMBER               FIXED DECIMAL (6),
+        5 STORE                    FIXED DECIMAL (4),
+        5 UPC_CNT                  FIXED DECIMAL (6),
+        5 EVENT_CNT                FIXED DECIMAL (4),
+        5 DATE_COLLECTED           FIXED DECIMAL (6),
+        5 SCANNED_CNT              FIXED DECIMAL (4),
+        5 MANUAL_CNT               FIXED DECIMAL (4),
+        5 DELETED_UPC_CNT          FIXED DECIMAL (4),
+        5 UPC_NOTFND_DICT_MAN      FIXED DECIMAL (4),
+        5 UPC_NOTFND_DICT_SCAN     FIXED DECIMAL (4),
+        5 USER_ID                  CHAR(3),
+        5 COLL_METHOD              CHAR(1),
+        5 BEG_TIME                 FIXED DECIMAL (6),
+        5 END_TIME                 FIXED DECIMAL (6),
+        5 QID                      CHAR(5),
+        5 RUN_DATE                 FIXED DECIMAL (6),
+        5 RUN_TIME                 FIXED DECIMAL (6),
+        5 SERIAL_NUM               CHAR(12),
+        5 FILLER                   CHAR (7);
+  /*************************************************************/
+  
+  /* FILE STRUCTURE FOR FILE ISTXREF (STATUS XREF RECORD STRUCTURE)    */
+  DCL 1 STATUS_XREF_REC UNALIGNED,
+  /********************* FIELDSTR.ICASTATX ****************************/
+  /**       THIS STRUCTURE IS THE STATUS CROSS REFERENCE LAYOUT    ****/
+  /**       USED TO OBTAIN A STORES TRUE MARKET NUMBER             ****/
+  /********************************************************************/
+  /***    DATE        DESCRIPTION OF CHANGE         CHANGED BY    *****/
+  /***    ------      ---------------------         ----------    *****/
+  /********************************************************************
+  DCL 1 STATUS_XREF_REC,       ICA STATUS XREF FILE RECORD LAYOUT     */
+    5 XREF_TRUE_MKT     CHAR(3)        /* COLLECTION TRUE MKT NUMBER  */
+                         INIT(' '),
+    5 XREF_STORE_NUM    CHAR(5)        /* COLLECTION STORE NUMBER     */
+                         INIT(' '),
+    5 XREF_WEEK_NUM     CHAR(4)        /* COLLECTION WEEK NUMBER      */
+                         INIT(' '),
+    5 XREF_QSTORE_NUM   CHAR(5)        /* COLLECTION QSCAN STORE NUM  */
+                         INIT(' '),
+    5 XREF_CHAIN_ID     CHAR(4)        /* COLLECTION STORE CHAIN ID   */
+                         INIT(' '),
+    5 XREF_DUE_DAY      CHAR(1)        /* COLLECTION STORE DUE DAY    */
+                         INIT(' '),
+    5 XREF_DISP_REQ     CHAR(1)        /* COLLECTION STORE DISP REQ   */
+                         INIT(' ');
+  
+  /* FILE STRUCTURE FOR FILE ISTATFL (ICA STATUS RECORD STRUCTURE)     */
+  DCL 1 ICA_STATUS_REC UNALIGNED,
+  /******************* FIELDSTR.ICASTAT ******************************/
+  /**            ICA STATUS FILE RECORD LAYOUT  (47 BYTES)          **/
+  /*******************************************************************/
+  /**    THIS RECORD IS USED TO MONITOR ICA STATUS BY STORE         **/
+  /**          FILE NAME IS 'ICAAUDIT.STATUS.W####'                 **/
+  /*******************************************************************/
+  /**    THIS FILE IS USED IN THE FOLLOWING PROGRAMS:               **/
+  /**            PROCEDURE          PROGRAM                         **/
+  /**            ---------          -------                         **/
+  /**            ICACONV            ICA100                          **/
+  /**            ICACNVUK           ICA100UK                        **/
+  /**            ICAQC              ICA150                          ***
+  /**            ICASTAT            ICA200                          **/
+  /*******************************************************************/
+  /** SUMMARY OF CHANGES:                                           **/
+  /**                                                               **/
+  /**    LEVEL            DATE             CHANGES                  **/
+  /**    ------          -------          ---------                 **/
+  /**      00            3/1/93            INITIAL RELEASE          **/
+  /**                                                               **/
+  /*******************************************************************/
+  /* DCL    1 ICA_STATUS_REC, */
+    5 STAT_DIST_NO    CHAR(3)        /*  1 DISTRICT NUMBER            */
+                       INIT(' '),
+    5 STAT_MKT_NO     CHAR(3)        /*  4 COLLECTION MARKET NUMBER   */
+                       INIT(' '),
+    5 STAT_STORE_NO   CHAR(5)        /*  7 COLLECTION STORE NUMBER    */
+                       INIT(' '),
+    5 STAT_ICA_NO     CHAR(6)        /* 12 COLLECTION ICA NUMBER      */
+                       INIT(' '),
+    5 STAT_CODE       CHAR(3)        /* 18 ICA STATUS CODE            */
+                       INIT(' '),
+    5 STAT_TERM       CHAR(1)        /* 21 ICA COLLECTION TERM        */
+                       INIT(' '),
+    5 STAT_DEADLINE   CHAR(4)        /* 22 ICA COLLECT DEADLINE WK #  */
+                       INIT(' '),
+    5 STAT_DE_ID      CHAR(5)        /* 26 DATA ENTRY UPDATE ID       */
+                       INIT(' '),
+    5 STAT_DEUPD_DATE CHAR(6)        /* 31 DATA ENTRY UPDATE DATE     */
+                       INIT(' '),
+    5 STAT_UPD_ID     CHAR(5)        /* 37 LAST ID TO UPDATE          */
+                       INIT(' '),
+    5 STAT_UPD_DATE   CHAR(6)        /* 42 LAST UPDATE DATE           */
+                       INIT(' ');
+  
+  /* FILE STRUCTURE FOR FILE DICTIONARY RETRIVAL                       */
+  DCL 1 DICT,
+  /************* THIS IS PLSTRUC.DICTRECL ******************************
+  1 DICTRECL,         UPC DICTIONARY RECORD LAYOUT                    */
+  4 BASIC,         /* THIS IS THE BASIC PART AS FOUND ON THE UNLOAD   */
+  %IF DICT_TYPE = '' %THEN %NOTE
+     ('YOU PROBABLY FORGOT TO INCLUDE PLSUB.MACROS IN THIS PROGRAM',12);
+    5 SYSTEM          BIN FIXED(15), /* THESE FOUR                    */
+    5 GENERATION      BIN FIXED(15), /*   FIELDS MAKE                 */
+    5 VENDOR          BIN FIXED(31), /*     UP THE FULL               */
+    5 ITEM            BIN FIXED(31), /*       UPC CODE                */
+    5 DESCRIPTION     CHAR(32),      /* BRAND NAME AND DESCRIPTION    */
+    5 WEEK_ADDED      BIN FIXED(15), /* WEEK FIRST MOVED ANYWHERE     */
+    5 WEEK_LAST_MOVE  BIN FIXED(15), /* WEEK LAST MOVED ANYWHERE      */
+    5 PRICE_SUM       BIN FIXED(31), /* THESE THREE FIELDS ARE USED   */
+    5 PRICE_COUNT     BIN FIXED(15), /*   TO CALCULATE THE DYNAMIC    */
+    5 PRICE_REJECT    BIN FIXED(15), /*     AVERAGE UNIT PRICE        */
+    5 TIMEOUT         BIT(1),        /* MARKET DID NOT RESPOND WITH   */            ADDED 90-09-25
+                                     /*   NEW ITEM INFO IN TIME       */
+    5 NPL             BIT(1),        /* WE HAVE DATA IN NPL           */            ADDED 91-01-09
+    5 KEY_SUGG        BIT(1),        /* WE HAVE SUGGESTED A KEYCAT    */            ADDED 91-01-24
+    5 FORCE_OUT       BIT(1),        /* SEND OUT UNCONDITIONALLY      */            ADDED 91-02-20
+    5 IMAGE           BIT(1),        /* WE HAVE AN NPL IMAGE          */            ADDED 91-06-05
+    5 VERIFIED        BIT(1),        /* ITEM VERIFIED IN MKT - ITS OK */            ADDED 91-07-17
+    5 EAN_MAPPED      BIT(1),        /* EUROP ARTICLE NUMBER MAPPED   */            ADDED 92-04-21
+                                     /* CORRECTLY TO SYS, VEN, ITEM   */
+    5 IGNORE_SEND     BIT(1),        /* IGNORE THIS RECORD IN ITEMSEND*/
+    5 IGNORE_RECORD   BIT(1),        /* IGNORE THIS RECORD MOVE < 18  */
+    5 FOUND           BIT(1),        /* FOUND IN 1ST MARKET SENT TO   */
+    5 FOUND2          BIT(1),        /* FOUND IN 2ND MARKET SENT TO   */
+    5 COMPL           BIT(1),        /* COMPL BY 1ST MARKET SENT TO   */
+    5 COMPL2          BIT(1),        /* COMPL BY 2ND MARKET SENT TO   */
+    5 SPECIAL_IGNORE  BIT(1),        /* IGNORE THIS RECORD IN STUBS   */
+    5 TARGET_ONLY     BIT(1),        /*********** NOT USED ************/
+    5 DELETE          BIT(1),        /* MARKED FOR DELETION           */            ADDED 95-09-07
+    5 PACK_AMOUNT     BIN FIXED(15), /* USED TOGETHER WITH PACK_TYPE  */            THIS FIELD WILL BE DELETED ********************************
+    5 HICONE_FACTOR   BIN FIXED(15), /* NUMBER OF ITEMS IN A PACK     */            ADDED 88-06-07
+    5 HICONE_THRESH   BIN FIXED(15), /* HICONE PRICE THRESHOLD.       */            ADDED 88-06-07
+                                     /* SOURCE OF INPUT DATA          */
+    5 SRC_FLD_COL     BIT(01),       /* SOURCE WAS FIELD COLLECTION   */
+    5 SRC_NPL_IMG     BIT(01),       /* SOURCE WAS NPL IMAGE          */
+    5 SRC_FST_PASS    BIT(01),       /* SOURCE WAS FIRST PASS         */
+    5 SRC_RTL_SHEET   BIT(01),       /* SOURCE WAS REATILER SHEET     */
+    5 SRC_PC_AUDIT    BIT(01),       /* SOURCE WAS PC AUDIT           */
+    5 SRC_VEND_CALL   BIT(01),       /* SOURCE WAS VENDOR CALL        */
+    5 SRC_DC_AUDIT    BIT(01),       /* SOURCE WAS DC AUDIT           */
+    5 SRC_VEND_SHEET  BIT(01),       /* SOURCE WAS VENDOR SELL SHEET  */
+    5 SRC_CLIENT_SRV  BIT(01),       /* SOURCE WAS CLIENT SERVICE     */
+    5 SRC_PACK_FLAT   BIT(01),       /* SOURCE WAS PACKAGE FLAT       */
+    5 SRC_FAM_SCAN    BIT(01),       /* SOURCE WAS FAMILY SCAN        */
+    5 SRC_PUBLICATION BIT(01),       /* SOURCE WAS PUBLICATIONS       */
+    5 SRC_DICT_QC     BIT(01),       /* SOURCE WAS DICTIONARY QC      */
+    5 SRC_OTHER       BIT(01),       /* SOURCE WAS OTHER MKT RESEARCH */
+    5 SRC_OLFC        BIT(01),       /* SOURCE WAS OLFC               */
+    5 SRC_RTL_DDE     BIT(01),       /* SOURCE WAS RETAILER UPDATE    */
+      /* THE ABOVE FIELD IS SAME AS SRC_NO_UPD_DES_RTL    #95252 */
+    5 SRC_CAMERA      BIT(01),       /* SOURCE WAS CAMERA             */
+    5 SRC_QSCAN       BIT(01),       /* SOURCE WAS QSCAN              */
+    5 SRC_CATALINA    BIT(01),       /* SOURCE WAS CATALINA           */
+    5 SRC_EURO_RTL    BIT(01),       /* SOURCE WAS RETAILER UPDATE    */
+      /* THE ABOVE FIELD IS SAME AS SRC_UPD_DES_RTL    #95252 */
+    5 SRC_GEOG_VAR    BIT(01),       /* SOURCE WAS GEOGRAPHICAL BAR   */
+    5 SRC_BNDL_PACK   BIT(01),       /* SOURCE WAS BUNDLE PACK        */
+    5 NUTRITION_LABEL BIT(01),       /* COLLECTED NUTRITION LABEL INF */
+    5 SRC_TOWNE_OLLER BIT(01),       /* SOURCE WAS TOWNE OLLER        */
+    5 CONVERTED7      BIT(01),       /* SYS 6,7 -> 26,27 IDENTIFIER   */
+    5 SRC_TRAD_AUDIT  BIT(01),       /* SOURCE WAS TRADITIONAL AUDIT  */
+    5 SRC_CAUS_AUDIT  BIT(01),       /* SOURCE WAS CAUSAL AUDIT       */
+    5 GROC            BIT(01),       /* MOVING IN A GROCERY STORE     */
+    5 MASS            BIT(01),       /* MOVING IN A MASS MERCH STORE  */
+    5 DRUG            BIT(01),       /* MOVING IN A SCANNING DRUG     */
+    5 CLUB            BIT(01),       /* MOVING IN A CLUB STORE        */
+    5 CONV            BIT(01),       /* MOVING IN A CONVENIENCE STORE */
+    5 LAST_UPDT       BIN FIXED(31), /* DATE FOR THE LAST UPDATE      */            THIS FIELD WAS MOVED TO THIS LOCATION SEPT 89
+    5 MFBCAT          BIN FIXED(15), /* MARKET FACTBOOK CATEGORY      */
+    5 KEYCAT          BIN FIXED(15), /* KEY CATEGORY                  */
+    5 VOLUME_TYPE     CHAR(2),       /* UNIT OF MEASURE FOR VOLUME    */            THIS FIELD WILL BE DELETED ********************************
+    5 SENT_TO         BIN FIXED(15), /* 1ST MKT WHERE ITEM WAS SENT   */
+    5 VOLUME_NUMB     BIN FLOAT(21), /* ACTUAL PACKAGE VOLUME         */            THIS FIELD WILL BE DELETED ********************************
+    5 RETAIL_VOLUME   BIN FLOAT(21), /* RETAILER STORE VOLUME IN OZ   */
+    5 SENT_TO2        BIN FIXED(15), /* 2ND MKT WHERE ITEM WAS SENT   */
+    5 TIMES_SENT      BIN FIXED(15), /* # OF TIMES AN ITEM WAS SENT   */
+    5 PGVOL           BIN FLOAT(21), /* P&G STAT FACTOR (I.E. "VOL")  */
+    5 PGBRND          BIN FIXED(15), /* P&G BEHAVIORSCAN BRAND ID     */
+    5 PACK_TYPE       CHAR(2),       /* USED WITH PACK_AMOUNT ABOVE   */            THIS FIELD WILL BE DELETED ********************************
+    5 CENTS           BIN FIXED(15), /* REPLACED BY PRICE             */
+    5 FAMILY_CODE     BIN FIXED(15), /* COUPON FAMILY CODE            */            ADDED 88-08-25
+    5 SAMI_PRICE      BIN FIXED(15), /* THE AVERAGE SAMI HEADER PRICE */
+    5 FAMILY_CODE2    BIN FIXED(15), /* SECONDARY FAMILY CODE         */
+    5 WEEK_SENT       BIN FIXED(15), /* WEEK SENT OUT TO MARKET       */
+    5 WEEK_COMPLETE   BIN FIXED(15), /* WEEK THE DESCR WAS COMPLETED  */
+    5 LAST_UPDU       CHAR(5),       /* CICS USERID FOR THE LAST UPD. */
+    5 VOTED           BIT(1),        /* ATTRIBUTES HAVE BEEN SET      */            ADDED 90-02-10
+    5 MULTI_PRICE     BIT(1),        /* USE MULTI-PRICE LOGIC INSTEAD */            ADDED 89-04-01
+                                     /*   OF HICONE LOGIC.            */
+    5 MANUALLY_ADDED  BIT(1),        /* THIS ENTRY WAS ADDED MANUALLY */
+    5 GIFTLINK        BIT(1),        /* THIS ITEM IS PART OF THE      */            ADDED 88-10-04
+                                     /*   GIFTLINK PROGRAM.           */            ADDED 88-10-84
+    5 NEW_ITEM        BIT(1),        /* ITEM WAS RECENTLY ADDED       */
+    5 BRAND_VALID     BIT(1),        /* THE BRAND NAME IS VALID       */
+    5 REPAIR          BIT(1),        /* THE WAD/WLM TABLES FOR THIS   */            ADDED 89-11-20
+                                     /*   ITEM NEED TO BE REPAIRED    */
+    5 HICONE_PACK     BIT(1),        /* THIS HICONE ITEM IS RECORDED  */            ADDED 88-06-07
+                                     /*   AS PACKS.                   */
+    5 UNUSED0         BIT(320),      /********** NOT USED *************/
+    5 INCREMENTAL_MOVE_UNITS BIN FIXED(15),/* INCREMENTAL UNIT COUNTER*/
+                                     /* 2 DECIMAL PLACES IMPLIED.     */
+    5 FAM_LAST_UPDT   BIN FIXED(15), /* IRI WEEK FAMILY CODE UPDATED  */
+    5 TIMESNOTFND     BIN FIXED(15), /* NUMBER OF TIMES NOT FOUND     */
+    5 PRICE           BIN FIXED(31), /* AVERAGE PRICE (IN CENTS)      */
+    5 COUNTRY_ID      CHAR(1),       /* BINARY COUNTRY CODE - PRECL   */
+    5 HOUSECODE       BIT(1),        /* IN HOUSE CODED                */            ADDED 95-09-07
+    5 FLD_COLLECT     BIT(1),        /* ELIGIBLE FOR FIELD COLLECTION */            ADDED 95-09-07
+    5 PRECAUTION_HICONE BIT(1),      /* PRECAUTIONARY HICONE          */            ADDED 96-07-10
+    5 MONET_ELIGIBLE  BIT(1),        /* ELIGIBLE FOR MONET COLLECTION */            ADDED 96-07-10
+    5 SRC_MONET       BIT(1),        /* SOURCE WAS MONET              */            ADDED 96-07-10
+    5 SRC_DISCREPANCY BIT(1),        /* SOURCE WAS DISCREPANCY        */            ADDED 96-07-10
+    5 SRC_PRESCAN     BIT(1),        /* SOURCE WAS PRESCAN            */            ADDED 96-07-10
+  /**** CHANGED 8/8/12 ****************************** PRCSK ***********/
+    5 LIQUOR          BIT(1),        /* MOVING IN LIQUOR OUTLET       */            ADDED 96-07-10
+    5 AUTOKEY_IGNORE  BIT(1),        /* DO NOT SEND THRU AK ENGINE    */            ADDED 96-07-10
+    5 PETS            BIT(1),        /* MOVING IN PETS   OUTLET       */            ADDED 12-08-08
+    5 UNUSED1         BIT(14),       /*********** NOT USED ************/
+    5 ALT_ATTR_4      BIN FIXED(31), /* EXPANDED VALUE FOR ATTR(4)    */            ADDED 06-17-08
+    5 UNUSEDC1        CHAR(2),       /*********** NOT USED ************/
+  /**** END CHANGE ********************************** PRLMC ***********/
+    5 WK_MONET_COLLECT BIN FIXED(15), /* WEEK OF MONET COLLECTION     */            ADDED 96-07-10
+  %IF DICT_TYPE = 'BITS' %THEN %DO   /* GENERATE BIT ARRAY            */;
+    5 MARKBITS(192)   BIT(1),        /* MARKETS IN WHICH THE ITEM     */
+  %END; %ELSE %DO                    /* GENERATE CHARACTER STRING     */;
+    5 MARKCHAR        CHAR(24),      /* MARKETS IN WHICH THE ITEM     */
+  %IF DICT_TYPE ^= 'CHAR' %THEN %NOTE
+      ('INVALID VALUE ' || DICT_TYPE || ' GIVEN TO DICT_TYPE.', 12);
+  %END;
+                                     /*   HAS EVER MOVED.             */
+    5 VOL_NUMB(6)     BIN FLOAT(21), /* PRIMARY AND SECONDARY VOLUMES */
+    5 VOL_TYPE(6)     CHAR(2),       /* UOM FOR PRIM AND SEC VOLUMES  */
+    5 BON_NUMB(4)     BIN FIXED(31), /* BONUS FIELD VALUES            */
+    5 BON_TYPE(4)     CHAR(2),       /* BONUS FIELD TYPES             */
+    5 ATTR(25)        BIT(16),       /* GENERAL ATTRIBUTES            */
+    5 BRAND           CHAR(5),       /* BRAND CODE                    */
+    5 MOREINFO        CHAR(55),      /* VARIOUS PRODUCT INFORMATION   */
+    5 REPLACE_COUNT   BIN FIXED(15), /* CT OF MOVE PR REPL BY DICT PR */
+  /*5 UNUSED2         BIT(30),       /*********** NOT USED ************/            CHNGD 98-10-23
+    5 UNUSED2         BIT(29),       /*********** NOT USED ************/            CHNGD 98-10-23
+    5 CONCR_CORRECT   BIT(01),       /* CORRECT ORACLE THRU CONCR     */            CHNGD 98-10-23
+    5 KCAT_VOL_CHG    BIT(01),       /* KEYCAT VOLUME HAS CHANGED     */            ADDED 95-11-07
+    5 KCAT_ATTR_CHG   BIT(01),       /* KEYCAT ATTRID HAS CHANGED     */            ADDED 95-11-07
+    5 WK_1ST_ELIGIBLE BIN FIXED(15), /* 1ST WEEK ELIGIBLE FOR ITEMSND */            ADDED 95-11-01
+    5 WK_1ST_KEYCATED BIN FIXED(15), /* 1ST WEEK KEYCATED             */            ADDED 95-11-01
+    5 CBL_CODE        BIN FIXED(31), /* CBL CODE                      */
+    5 UPDT_TOD        BIN FIXED(31), /* UPDATE TIME OF DAY            */
+    5 LGR_STORES(10)  BIN FIXED(31)  /* STORES THE ITEM IS MOVING IN  */
+  ,
+  4 WEEKS(192),    /* THIS IS THE RECORD EXTENSION.  THIS PART IS NOT
+                      TO BE FOUND IN THE DICTIONARY UNLOAD DATA SET.  */
+    5 ADDED           BIN FIXED(15), /* WEEK ADDED IN THIS MARKET     */
+    5 LAST_MOVE       BIN FIXED(15); /* WEEK LAST MOVED IN THIS MARKET*/
+  /************* END OF PLSTRUC.DICTRECL, LENGTH 1200 BYTES ***********/
+  
+  
+  
+  /*********************************************************************/
+  /*               DYNALLOC DECLARATION                                */
+  /*********************************************************************/
+  /* FILE STRUCTURE FOR ALLOCATING A DATA SET THROUGH A PL/I PROGRAM.  */
+  /* ALSO THE EXTERNAL SUBROUTINE TO ACTUALLY ALLOCATE A DATASET.      */
+  /*********************************************************************/
+  
+  DCL 1 DYNALLOC,
+  /************* START OF PLSTRUC.DYNALLOC *****************************/
+  /*                                                                   */
+  /*      THIS STRUCTURE MAPS THE PARAMETER AREA PASSED TO THE         */
+  /*      DYNAMIC ALLOCATION ROUTINE.  NOTE THAT ALL UNUSED            */
+  /*      PARAMETERS IN THIS AREA MUST BE SET TO 0 OR BLANKS.          */
+  /*      THE EASIEST WAY TO DO THIS IS TO USE                         */
+  /*                                                                   */
+  /*                DYNALLOC = ''                                      */
+  /*                                                                   */
+  /*********************************************************************/
+        5 FUNCTION   CHAR(01),      /* BLANK FOR ALLOCATE FUNCTION     */
+                                    /* '2' FOR DEALLOCATE FUNCTION     */
+        5 TERM       CHAR(01),      /* ANY NON-BLANK - ALLOCATE A      */
+                                    /*   TERMINAL DATASET              */
+        5 DDNAME     CHAR(08) VAR,  /* FILE NAME FOR THIS DATASET      */
+        5 DUMMY      CHAR(01),      /* ANY NON-BLANK - ALLOC DUMMY DSN */
+  /***/ 5 FILLER1    CHAR(01),      /* TO ALIGN THE NEXT FIELD         */
+        5 DSNAME     CHAR(44) VAR,  /* DATASET NAME                    */
+        5 MEMBER     CHAR(08) VAR,  /* MEMBER OF PDS OR GDG NUMBER     */
+        5 DISP1      CHAR(03),      /* SHR, OLD, MOD OR NEW            */
+        5 DISP2      CHAR(07),      /* KEEP, DELETE, CATLG OR UNCATLG  */
+        5 DISP3      CHAR(07),      /* KEEP, DELETE, CATLG OR UNCATLG  */
+        5 CYLTRK     CHAR(03),      /* CYL, TRK OR BLK                 */
+        5 QUANTITY   BIN FIXED(31), /* AVG BLKSIZE FOR SPACE ALLOC     */
+        5 PRIMARY    BIN FIXED(31), /* PRIMARY SPACE ALLOCATION        */
+        5 SECONDARY  BIN FIXED(31), /* SECONDARY SPACE ALLOCATION      */
+        5 DIRECTORY  BIN FIXED(15), /* DIRECTORY SPACE ALLOCATION      */
+        5 RLSE       CHAR(04),      /* RLSE - RELEASE SPACE AT CLOSE   */
+        5 VOLSER     CHAR(06) VAR,  /* VOLUME SERIAL NUMBER            */
+        5 UNIT       CHAR(08) VAR,  /* UNIT PARAMETER                  */
+        5 UNITCNT    BIN FIXED(15), /* NUMBER OF UNITS TO ALLOCATE     */
+        5 BLKSIZE    BIN FIXED(15), /* DATASET BLOCK SIZE              */
+        5 LRECL      BIN FIXED(15), /* DATASET RECORD LENGTH           */
+        5 RECFM      CHAR(06) VAR,  /* RECORD FORMAT                   */
+        5 DSORG      CHAR(02),      /* PS, PO OR DA                    */
+        5 FREE       CHAR(01),      /* ANY NON-BLANK - FREE AT CLOSE   */
+        5 CLASS      CHAR(01),      /* SYSOUT CLASS PARAMETER          */
+        5 PGM        CHAR(08) VAR,  /* SYSOUT PROGRAM NAME             */
+        5 FORMS      CHAR(04) VAR,  /* SYSOUT FORM NUMBER              */
+        5 DEST       CHAR(08) VAR,  /* SYSOUT DESTINATION ID           */
+        5 OUTLIM     BIN FIXED(31), /* SYSOUT OUTPUT LIMIT PARAMETER   */
+        5 PASSWORD   CHAR(08) VAR,  /* PASSWORD FOR A PROTECTED DSN    */
+        5 CONCAT(10) CHAR(08) VAR,  /* DD NAMES TO BE CONCATENATED     */
+        5 LABEL_TYPE CHAR(03),      /* LABEL TYPE: SL NL BLP.....      */
+        5 DEFER      CHAR(01),      /* DEFER MOUNTING. ANY BLANK CHAR  */
+        5 EXTENTS    CHAR(4),       /* MXIG, ALX OR CONT               */
+        5 DCB_DSNAME CHAR(44) VAR,  /* DCB DATASET NAME                */
+  /***/ 5 RESERVED   CHAR(66),      /* FOR FUTURE CHAR DATA (WAS 112)  */
+        5 LABEL_SEQ# BIN FIXED(15), /* TAPE DATASET SEQUENCE NUMBER    */
+        5 VOL_SEQ#   BIN FIXED(15), /* TAPE VOLUME SEQUENCE NUMBER     */
+        5 VOL_NUMB   BIN FIXED(15), /* VOLUME COUNT (FOR TAPE)         */
+        5 EXPDT      BIN FIXED(31), /* EXPIRATION DATE                 */
+        5 RETPD      BIN FIXED(15), /* RETENTION PERIOD                */
+  /***/ 5 UNUSED(26) BIN FIXED(15), /* FOR FUTURE BINARY DATA          */
+        5 ERROR_CODE BIN FIXED(15), /* DYNALLOC ERROR CODE FROM DYNRB  */
+        5 ERROR_INFO BIN FIXED(15), /* DYNALLOC INFORMATION CODE       */
+        5 ERROR_MSG  CHAR(128);     /* ERROR MESSAGE FROM DAIRFAIL     */
+  /************* END OF PLSTRUC.DYNALLOC *******************************/
+ 0/************* THIS IS PLENTRY.DYNAMAL ******************************/
+  DCL DYNAMAL ENTRY(           /* INTERFACE TO DYNALLOC SVC ROUTINE   */
+              PTR)             /* SHOULD POINT TO PLSTRUC.DYNALLOC    */
+              RETURNS(
+              BIN FIXED(15));  /* RETURN CODE FROM SVC 99             */
+  /********************************************************************/
+  /*                                                                  */
+  /*     CALL THIS PROCEDURE THE FOLLOWING WAY:                       */
+  /*                                                                  */
+  /*     DCL 1 DYNALLOC,                                              */
+  /*    /INCLUDE PLSTRUC.DYNALLOC                                     */
+  /*     DYNALLOC = ''                                                */
+  /*               ...................                                */
+  /*     .... SET PARAMETERS IN DYNALLOC AREA ...                     */
+  /*               ...................                                */
+  /*     IF DYNAMAL(ADDR(DYNALLOC)) > 0 THEN GOTO SOME_ERROR_ROUTINE  */
+  /*                                                                  */
+  /************* END OF PLENTRY.DYNAMAL *******************************/
+  
+  
+  
+ 1/*********************************************************************/
+  /*               PLENTRY  DECLARATION                                */
+  /*********************************************************************/
+  /* EXTERNAL SUBROUTINES DECLARATIONS IN PLI/PROGRAM.                 */
+  /* A.UPCTRA IS ******** REMOVED BY PRJDH ON 7/29/96  ******          */
+  /* B.CKTRACK IS  ******** REMOVED BY PRJDH ON 7/29/96  ******        */
+  /* C.DICTREAD IS CALLED TO RETRIEVE BRAND DESCRIPTION,GENERATION, AND*/
+  /*      KEYCAT.                                                      */
+  /*********************************************************************/
+  
+ 0/*********** THIS IS PLENTRY.DCTREAD *********************************
+  
+       THE FOLLOWING ROUTINES SUPPORT READ/ONLY ACCESS TO THE
+       UPC DICTIONARY.  THESE ROUTINES WORK WITH THE 1218 BYTE
+       DICTIONARY RECORD FORMAT INTRODUCED AUTUMN 1989.
+                                                                      */
+   DCL DCTINI  ENTRY(          /* OPEN THE DICTIONARY                 */
+               BIT(1));        /* '0'B - OPEN FOR INPUT ONLY          */
+                               /* '1'B - OPEN FOR UPDATE AND ADDITION */
+  
+   DCL DCTINIX ENTRY(          /* OPEN THE DICTIONARY                 */
+               BIT(1));        /* '0'B - OPEN FOR INPUT ONLY          */
+                               /* '1'B - OPEN FOR UPDATE AND ADDITION */
+  
+   DCL DCTFIN  ENTRY;          /* CLOSE THE DICTIONARY.  THIS ROUTINE */
+   ON  FINISH  BEGIN;
+       ON FINISH SYSTEM;
+          CALL DCTFIN;         /* IS CALLED AUTOMATICALLY WHEN A      */
+   END;                        /* PROGRAM TERMINATES.                 */
+  
+   DCL DCTREAD ENTRY(          /* READ A BLOCK FROM DICTIONARY        */
+               POINTER,        /* SHOULD POINT TO PLSTRUC.DICTRECL    */
+               BIN FIXED(31)); /* ERROR CODE, SEE PLSUB.DCTCODES      */
+  
+   /* PRGOS 05/21/02 - ADDED FOR NEW DIV ACCESS ROUTINES  */
+   DCL DCTRDX  ENTRY(          /* READ A BLOCK FROM DICTIONARY        */
+               POINTER,        /* SHOULD POINT TO PLSTRUC.DICTRECL    */
+               BIN FIXED(31)); /* ERROR CODE, SEE PLSUB.DCTCODES      */
+  
+  /*********** END OF PLENTRY.DCTREAD *********************************/
+  
+  
+  /*********************************************************************/
+  /* EXTERNAL PROCEDURES CALLED BY ICBP020E SPECIFIC TO THE            */
+  /* CONVERSION OF EUROPEAN DATA TO ICA RECORD FORMAT.                 */
+  /*********************************************************************/
+  
+  /*********************************************************************/
+  /*                    ---> MAINTENANCE LOG <---                      */
+  /*-------------------------------------------------------------------*/
+  /* DATE      ID     REQ #  LVL  CHANGE DESCRIPTION                   */
+  /* ========  =====  ====== ===  ==================================== */
+  /* MM/DD/YY  PREPM         00   INITIAL RELEASE                      */
+  /* ----------------------------------------------------------------- */
+  /*------------------------------------ ------ ------------ --- --- - */
+  /*  prkmc    11/11/98     010   Program changed to allow for new     */
+  /*                              UK causal conditions of :            */
+  /*                              EDLP(Every day low pricing)(var 19)  */
+  /*                              SINGlE (vs multi-buy)(var 19)        */
+  /*                              BONUS (var 20)                       */
+  /*                              NO BONUS (var 20)                    */
+  /*                                                                   */
+  /*------------------------------------ ------ ------------ --- --- - */
+  /*                                                                   */
+  /* 02/18/94  PRTJZ              EUROCONV PARTITIONED OUT FROM        */
+  /*                              ICBP020E.                            */
+  /*-------------------------------------------------------------------*/
+  /* 03/11/94  PREBC              ADDED THE FOLLOWING VARIABLES:       */
+  /*                                1) ADV_HONE_DOM_QUEST#             */
+  /*                                2) ADV_SHOP_DOM_QUEST#             */
+  /*                                3) DISPWKLY_DOM_QUEST#             */
+  /*                                4) FEATURE_DOM_QUEST#              */
+  /*-------------------------------------------------------------------*/
+  /* 03/17/94 PRTJZ               MODIFIED THE TRANS_ICA_NAME PROCEDURE*/
+  /*                              TO EXTRACT ENGLISH TRANSLATIONS FROM */
+  /*                              AN ARRAY AS OPPOSED TO HARD-CODING   */
+  /*                              THOSE TRANSLATIONS.                  */
+  /*-------------------------------------------------------------------*/
+  /* 03/17/94 PRTJZ               ADDED THE LOAD_TRAN PROCEDURE TO LOAD*/
+  /*                              THE ARRAY USED IN THE TRANS_ICA_NAME */
+  /*                              PROCEDURE.                           */
+  /*-------------------------------------------------------------------*/
+  /* 06/21/94 PREBC               NOW CHECKING IF INREC HAS '3F'X AS   */
+  /*                              THE FIRST BYTE. IF SO, INREC IS      */
+  /*                              CHANGED TO 'EE' SIMULATING AN ENDING */
+  /*                              RECORD.                              */
+  /*-------------------------------------------------------------------*/
+  /* 06/24/94 PREBC               IF BLANK UPC (INREC='UN'), IT IS NOT */
+  /*                              PROCESSED.                           */
+  /*-------------------------------------------------------------------*/
+  /* 06/24/94 PREBC               BEG_TIME AND END_TIME NOW BEING      */
+  /*                              WRITTEN TO PRODUCTIVITY FILE.        */
+  /*-------------------------------------------------------------------*/
+  /* 06/29/94 PREBC               MOTHR PROCESSING ADDED               */
+  /*-------------------------------------------------------------------*/
+  /* 06/29/94 PREBC               FREE TYPE PROCESSING ADDED           */
+  /*-------------------------------------------------------------------*/
+  /* 07/05/94 PREBC               IF INREC HAS '3F', INREC IS CHANGED  */
+  /*                              TO SIMULATE AN ENDING RECORD COMPLETE*/
+  /*                              WITH ICA NUMBER AND ENDING TIME OF   */
+  /*                              999999.                              */
+  /*-------------------------------------------------------------------*/
+  /* 07/20/94 PRTJZ               ADDED CODE TO WRITE QID, RUN TIME AND*/
+  /*                              RUN DATE TO THE HOLLAND PRODUCTIVITY */
+  /*                              FILE.                                */
+  /*-------------------------------------------------------------------*/
+  /* 07/27/94 PRTJZ               ADDED CODE TO WRITE QID, RUN TIME AND*/
+  /*                              RUN DATE TO THE FRENCH PRODUCTIVITY  */
+  /*                              FILE.  ALSO MADE MODIFICATIONS TO    */
+  /*                              ACCOMMODATE RAW DATA FILES THAT ARE  */
+  /*                              UPLOADED WITHOUT ENDING RECORDS.     */
+  /*-------------------------------------------------------------------*/
+  /* 03/28/95 PRTJZ          002  ADDED CODE TO PROCESS FRENCH ENDING  */
+  /*                              RECORD GENERATED FROM THE FRENCH RISC*/
+  /*                              UPLOAD PROGRAM, ('E**********').     */
+  /*-------------------------------------------------------------------*/
+  /* 03/28/95 PRTJZ          003  ADDED CODE TO INITIALIZE THE GENERA- */
+  /*                              TION TO ZERO WHEN THE DICTIONARY IS  */
+  /*                              CALLED TO RECEIVE THE MOST CURRENT   */
+  /*                              DICTIONARY DESCRIPTION.              */
+  /*-------------------------------------------------------------------*/
+  /* 12/01/95 PREBC          004  ADDED CODE TO FOR EAN-BASED FEATURE  */
+  /*                              MAPPING.                             */
+  /*-------------------------------------------------------------------*/
+  /* 7/29/96  PRJDH          005  ADDED CODE TO HANDLE INVALID OR      */
+  /*                              CANCELED QUESTIONS IN THE PROC       */
+  /*                              CLEAN_QUESTION_VALUE                 */
+  /*-------------------------------------------------------------------*/
+  /* 8/28/96  PREBC          006  Added flag FLG_FRENCH_PROCESSING     */
+  /*                              which is TRUE only if processing     */
+  /*                              French raw data. This is needed by   */
+  /*                              the EAN-based feature mapping        */
+  /*                              algorithm.                           */
+  /*                                                                   */
+  /*                         007  Also corrected problem with          */
+  /*                              CLEAN_QUESTION_VALUE where           */
+  /*                              NUM_QUEST variable did not get the   */
+  /*                              right number of questions for        */
+  /*                              ICA#9 (Feature)                      */
+  /*                                                                   */
+  /*                         008  Corrected problem with BLANK VARIABLE*/
+  /*                              21. Only the first byte of the 5-byte*/
+  /*                              custom variable was being written to */
+  /*                              the output file.                     */
+  /*------------------------------------ ------ ------------ --- --- - */
+  /*  prjdh    10/3/96      009   Change program to ensure that the    */
+  /*                              data and time for the productivity   */
+  /*                              file was supplied by the ICA header  */
+  /*                              and not the file header.             */
+  /*                                                                   */
+  /*                                                                   */
+  /*-------------------------------------------------------------------*/
+  
+             /*   UK DEFAULTS     */
+  DCL ADV_HOME_DOM_QUEST#            FIXED BIN(15) INIT(2) ;
+  DCL ADV_SHOP_DOM_QUEST#            FIXED BIN(15) INIT(1) ;
+  DCL DISPWKLY_DOM_QUEST#            FIXED BIN(15) INIT(1) ;
+  DCL FEATURE_DOM_QUEST#             FIXED BIN(15) INIT(2) ;
+  
+         /* DCL'S BY PRJDH ON 7/29/96 */
+  DCL ADV_HOME_NUM_OF_QUEST          FIXED BIN(15) INIT(2) ;
+  DCL ADV_SHOP_NUM_OF_QUEST          FIXED BIN(15) INIT(1) ;
+  DCL DISPWKLY_NUM_OF_QUEST          FIXED BIN(15) INIT(1) ;
+  DCL FEATURE_NUM_OF_QUEST           FIXED BIN(15) INIT(2) ;
+  DCL QUESTION_LEN                   FIXED BIN(15) INIT(2) ;
+  DCL QUESTION_START                 FIXED BIN(15) INIT(2) ;
+  DCL NUM_QUEST                      FIXED BIN(15) INIT(2) ;
+         /* END PRJDH DCL'S */
+  
+  DCL NUM_OF_ADV_HOME_CODES          FIXED BIN(15) INIT(3) ;
+  DCL NUM_OF_ADV_SHOP_CODES          FIXED BIN(15) INIT(4) ;
+  DCL NUM_OF_DISPWKLY_CODES          FIXED BIN(15) INIT(6) ;
+  
+  DCL 1 ADV_HOME_MAP(4),
+        2 WAND_CODE          CHAR(1) INIT(' '),
+        2 ACTUAL_CODE        CHAR(1) INIT(' ');
+  
+  DCL 1 ADV_SHOP_MAP(4),
+        2 WAND_CODE          CHAR(1) INIT(' '),
+        2 ACTUAL_CODE        CHAR(1) INIT(' ');
+  
+  DCL 1 DISPWKLY_MAP(8),
+        2 WAND_CODE          CHAR(1) INIT(' '),
+        2 ACTUAL_CODE        CHAR(1) INIT(' ');
+  
+  DCL WAND_ANSWER            CHAR(1) INIT(' ') ;
+  
+  DCL FLG_FRENCH_PROCESSING  BIT(1) INIT('0');
+  
+1 /*********************************************************************/
+  /* PROCESS THE HEADER RECORD                                         */
+  /*********************************************************************/
+  /* MOVES HEADER RECORD INFORMATION FROM THE IMWFILE(RAW DATA FILE)   */
+  /*   TO FIELDS FOR EACH UPC WRITTED ASSOCICATED WITH THE HEADER      */
+  /*   RECORD.                                                         */
+  /* READS NEXT RECORD IN THE IMWFILE(RAW DATA FILE)                   */
+  /* PERFORMS A ERROR HANDLING ROUTINE IF THE FIRST RECORD DOES NOT    */
+  /*   HAPPEN TO BE A HEADER RECORD. FOR EACH IMWFILE, THERE MUST EXIST*/
+  /*   AT LEAST ONE HEADER RECORD.                                     */
+  /*********************************************************************/
+  
+  PROCESS_HEADER_REC: PROCEDURE;
+  
+  IF REC_TYPE = 'H' THEN DO;
+     AUDIT_SW = FALSE;
+     PIC_99999            = SUBSTR(IN_REC,2,5);
+     OICA.STORE           = PIC_99999;
+     OICA.ST_OVERIDE      = SUBSTR(IN_REC,7,1);
+     PIC_9999             = SUBSTR(IN_REC,8,4);
+     OICA.WEEK            = PIC_9999;
+     ORIGINAL_WEEK        = OICA.WEEK;
+  
+     IF SUBSTR(IN_REC,27,1) = 'A' THEN
+        OICA.ST_OVERIDE = 'A';
+  
+     OPROD.STORE           = PIC_99999;
+     OPROD.WEEK            = PIC_9999;
+     OPROD.USER_ID         = SUBSTR(IN_REC,12,3);
+     PIC_999999            = SUBSTR(IN_REC,15,6) ;
+     OPROD.DATE_COLLECTED  = PIC_999999;
+     OPROD.QID             = SUBSTR(IN_REC,33,5);
+     END;
+  ELSE DO;
+     MSG_TXT = '*** ICBP020E I MSG 002. ABEND ''IMWFILE'' HAS NO ' ||
+               'HEADER RECORD. ***';
+     PUT SKIP LIST(MSG_TXT);
+     SIGNAL ERROR;
+  END;
+  
+  END PROCESS_HEADER_REC;
+1 /*********************************************************************/
+  /* PROCESS FR HEADER RECORD                                          */
+  /*********************************************************************/
+  /* FOR FRENCH HEADER RECORDS ONLY, (AS THEY ARE ON BYTE LARGER)      */
+  /*                                                                   */
+  /* MOVES HEADER RECORD INFORMATION FROM THE IMWFILE(RAW DATA FILE)   */
+  /*   TO FIELDS FOR EACH UPC WRITTED ASSOCICATED WITH THE HEADER      */
+  /*   RECORD.                                                         */
+  /* READS NEXT RECORD IN THE IMWFILE(RAW DATA FILE)                   */
+  /* PERFORMS A ERROR HANDLING ROUTINE IF THE FIRST RECORD DOES NOT    */
+  /*   HAPPEN TO BE A HEADER RECORD. FOR EACH IMWFILE, THERE MUST EXIST*/
+  /*   AT LEAST ONE HEADER RECORD.                                     */
+  /*********************************************************************/
+  
+  PROCESS_FR_HEADER_REC: PROCEDURE;
+  
+  FLG_FRENCH_PROCESSING = '1'B ;                    /* PREBC-08-28-96 */
+  IF REC_TYPE = 'H' THEN DO;
+     AUDIT_SW = FALSE;
+     PIC_99999            = SUBSTR(IN_REC,2,5);
+     OICA.STORE           = PIC_99999;
+     OICA.ST_OVERIDE      = SUBSTR(IN_REC,7,1);
+     PIC_9999             = SUBSTR(IN_REC,8,4);
+     OICA.WEEK            = PIC_9999;
+     ORIGINAL_WEEK        = OICA.WEEK;
+  
+     IF SUBSTR(IN_REC,28,1) = 'A' THEN
+        OICA.ST_OVERIDE = 'A';
+  
+     PIC_99999             = SUBSTR(IN_REC,2,5);
+     OPROD.STORE           = PIC_99999;
+     PIC_9999              = SUBSTR(IN_REC,8,4);
+     OPROD.WEEK            = PIC_9999;
+     OPROD.USER_ID         = SUBSTR(IN_REC,12,4);
+     OPROD.QID             = SUBSTR(IN_REC,34,5);
+     END;
+  ELSE DO;
+     MSG_TXT = '*** ICBP020E I MSG 002. ABEND ''IMWFILE'' HAS NO ' ||
+               'HEADER RECORD. ***';
+     PUT SKIP LIST(MSG_TXT);
+     SIGNAL ERROR;
+  END;
+  
+  END PROCESS_FR_HEADER_REC;
+  
+  
+1 /*********************************************************************/
+  /* PROCESS THE ICA RECORD                                            */
+  /*********************************************************************/
+  /* MOVES ICA RECORD INFORMATION FROM THE IMWFILE(RAW DATA FILE)      */
+  /*   TO FIELDS FOR EACH UPC WRITTEN ASSOCIATED WITHE THE ICA RECORD. */
+  /*   RECORD.                                                         */
+  /* INITALIZES THE VALUE ARRAYS.                                      */
+  /* IF THE ICA SHORT NAME IS NOT EQUAL TO 'FEATURES', THEN THE        */
+  /*   LATEST EVENT NUMBER IS RETRIEVE IF THE DATA SET EXISTS. A SUB-  */
+  /*   ROUTINE DYNAMIC_ALLOCATION_OF_FILE IS CALLED.                   */
+  /* READS NEXT RECORD IN THE IMWFILE(RAW DATA FILE).                  */
+  /*********************************************************************/
+  PROCESS_ICA_REC: PROCEDURE;
+  
+  
+  PIC_999999            = SUBSTR(IN_REC,17,6) ; /* PRJDH LVL 009 */
+  OPROD.DATE_COLLECTED  = PIC_999999;           /* PRJDH LVL 009 */
+  PIC_999999        = SUBSTR(IN_REC,2,6);
+  OICA.ICA_NUMBER   = PIC_999999;
+  ICA_SHORT_NAME    = SUBSTR(IN_REC,8,8);
+  
+  OICA.WEEK = ORIGINAL_WEEK;
+  QUESTION_VALUES = '';
+  
+  OPROD.ICA_NUMBER  = PIC_999999;
+  OPROD.COLL_METHOD = SUBSTR(IN_REC,16,1);
+  /* PIC_999999      = SUBSTR(IN_REC,17,6) REM 07/05/94 PREBC */
+  PIC_999999      = SUBSTR(IN_REC,23,6) ; /* 07/05/94 PREBC */
+  OPROD.BEG_TIME  = PIC_999999 ;
+  OICA.ICA_RECIPE = FALSE;
+  DO J = 1 BY 1 TO 48;
+     VARIABLE(J).VALUE = '';
+     COMMON(J).VALUE   = '';
+  END;
+  
+  QUESTION_VALUES = '';
+  VAR_VALUE_HOLD  = '';           /* 03/27/94 PREBC */
+  
+  OICA.SOURCE_CODE   = '40'X;
+  OICA.DOMINANC_CODE = '40'X;
+  
+  OICA.WEEK   = ORIGINAL_WEEK;
+  OPROD.WEEK  = ORIGINAL_WEEK;
+  
+  /*** IF ICA SHORT NAME = PROSPCT2 THEN THE EAN BASED FEATURE MAPPING */
+  /*** IS ACTIVE AND WILL BE COPIED TO SUBSEQUENT WEEKS AS ICA #8.     */
+  /*** ADV_HOME_DOM_QUEST# IS CHANGED TO 2 BECAUSE DOMINANCE CODE IS   */
+  /*** DETERMINED AFTER NUMBER OF FEATURE WEEKS                        */
+  IF ICA_SHORT_NAME = 'PROSPCT2' THEN DO;            /* PRTJZ 03-21-95 */
+     ICA_SHORT_NAME = 'FEATURE ';                    /* PRTJZ 03-21-95 */
+     OICA.ICA_NUMBER = 8;                            /* PREBC 08-17-95 */
+     EAN_FEAT_MAP = '1'B;                            /* PRTJZ 03-21-95 */
+     ADV_HOME_DOM_QUEST# = 2 ;                       /* PREBC 10-03-95 */
+  END; /* IF OICA_NUMBER = 9 */                      /* PRTJZ 03-21-95 */
+  ELSE                                               /* PRTJZ 03-21-95 */
+  DO ;
+     EAN_FEAT_MAP = '0'B;                            /* PRTJZ 03-21-95 */
+     IF FLG_FRENCH_PROCESSING THEN ADV_HOME_DOM_QUEST# = 1 ; /*EBC-8-28*/
+  END;
+  
+  ICA_HOLD    = OICA.ICA_NUMBER;
+  WEEK_HOLD   = OICA.WEEK;
+  STORE_HOLD  = OICA.STORE;
+  WRITE_PRIORWK = 'N';
+  
+  END PROCESS_ICA_REC;
+  
+  
+1 /*********************************************************************/
+  /* PROCESS THE ENDING ICA RECORD                                     */
+  /*********************************************************************/
+  /* MOVES END RECORD INFORMATION FOR A ICA FROM                       */
+  /* MOVES COUNTS TO THE OPROD RECORD STRUCTURE.                       */
+  /* CALLS A SUBROUTINE TO DYNAMIC ALLOCATE THE OPRODFL.               */
+  /* SETS THE OCAFILE_SW TO TRUE                                       */
+  /* PROCESS ERROR HANDLING IF A HEADER RECORD, ICA RECORD, ENDING     */
+  /*   RECORD, AND UPC COUNT = 0.                                      */
+  /* INITIALIZES THE COUNTERS.                                         */
+  /*********************************************************************/
+  
+  PROCESS_ENDING_ICA: PROCEDURE;
+  
+  
+  IF UPC_CNT > 0 THEN DO;
+     IF REC_TYPE = 'E' &
+        REC_TYPE_TWO ^= 'ED' THEN
+        PIC_999999     = SUBSTR(IN_REC,8,6) ;
+     ELSE
+        PIC_999999     = 000000 ;
+  
+     OPROD.END_TIME        = PIC_999999;
+     OPROD.UPC_CNT         = UPC_CNT;
+     OPROD.SCANNED_CNT     = SCANNED_UPC_CNT;
+     OPROD.MANUAL_CNT      = MANUAL_UPC_CNT;
+     OPROD.DELETED_UPC_CNT = DELETE_UPC_CNT;
+     OPROD.EVENT_CNT       = EVENT_ID;
+  
+     CALL WRITE_OPRODFL;
+   /*IF ORIGINAL_WEEK = OPROD.WEEK THEN*/
+      /*CALL PROCESS_STATUS_FILE*/
+  
+     UPC_CNT              = 0;
+     SCANNED_UPC_CNT      = 0;
+     MANUAL_UPC_CNT       = 0;
+     DELETE_UPC_CNT       = 0;
+     UPC_NOTFND_DICT_SCAN = 0;
+     UPC_NOTFND_DICT_MAN  = 0;
+     EVENT_ID             = 0;
+  END;
+  
+  END PROCESS_ENDING_ICA;
+  
+  
+1 /*********************************************************************/
+  /* PROCESS THE FIXED VARIABLES                                       */
+  /*********************************************************************/
+  /* PROCESSES VARIABLE RECORDS IF THE VARIABLES ARE WRITTEN PRIOR TO  */
+  /* THE FIRST UPC RECORD ENCOUNTERD. THESE VARIABLES ARE THEN STORED  */
+  /* IN THE COMMON ARRAY. THESE VARIABLE VALUES WILL CHANGE ONLY IF    */
+  /* THE VARIABLE IS ENCOUNTERED ANY WHERE BETWEEN THE ICA RECORD AND  */
+  /* THE ENDING RECORD.  THESE VARIABLES WILL ALLWAYS EXIST IN EVERY   */
+  /* UPC WRITTEN.                                                      */
+  /* EVENT IS ICREMENTED IF THE EVENT SWITCH IS TRUE.                  */
+  /* CALLS THE NEXT RECORD.                                            */
+  /*********************************************************************/
+  
+  PROCESS_VARIABLES: PROCEDURE;
+  
+  IF ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'B') &
+       (REC_TYPE ^= 'M') & (REC_TYPE ^= 'N') &
+       (REC_TYPE ^= 'E') & (REC_TYPE ^= 'S') &
+       (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') ) THEN DO;
+     VAR_REC_TYPE  = SUBSTR(IN_REC,1,2);
+     VAR_TYPE_HOLD = VAR_REC_TYPE;
+  
+     COMMON(VAR_TYPE_HOLD).VALUE = SUBSTR(IN_REC,3,7);
+  
+     IF (VAR_REC_TYPE = '16') |
+        (VAR_REC_TYPE = '23') &
+        (ICA_SHORT_NAME = 'DISPWKLY')  THEN
+        DO;
+           EVENT_ID = EVENT_ID + 1;
+           EVENT_ID_TOTAL = EVENT_ID_TOTAL + 1;
+        END;
+  
+     IF (VAR_REC_TYPE >= '01') | (VAR_REC_TYPE <= '48') THEN
+        VARIABLE(VAR_TYPE_HOLD).VALUE = SUBSTR(IN_REC,3,7);
+  
+     IF REC_TYPE_TWO ^= PREV_REC_TYPE_TWO &
+        SUBSTR(IN_REC,1,2) = '23' THEN
+  /*    IF ICA_SHORT_NAME ^= 'CIGWKLY' THEN          PRTJZ 3/8/94  */
+        IF ICA_SHORT_NAME ^= 'SPCLPACK' &
+           ICA_SHORT_NAME ^= 'PROMOVOL'  THEN     /* 03/27/94 PREBC */
+           QUESTION_VALUES = '';
+  
+     IF SUBSTR(IN_REC,1,2) = '23' THEN
+        QUESTION_VALUES = QUESTION_VALUES || SUBSTR(IN_REC,3,1);
+  
+  
+     OPROD.WEEK = OICA.WEEK;
+     ICA_HOLD   = OICA.ICA_NUMBER;
+     WEEK_HOLD  = OICA.WEEK;
+     STORE_HOLD = OICA.STORE;
+  
+  END;
+  
+  END PROCESS_VARIABLES;
+  
+  
+1 /*********************************************************************/
+  /* PROCESS THE UPC RECORD                                            */
+  /*********************************************************************/
+  /* PROCESSES THE UPC RECORD FROM THE IMWFILE(RAW DATA FILE)          */
+  /* CHECKS IF UPC IS A DELETED RECORD AND INCREMENTS THE DELETE UPC   */
+  /*   COUNT BY 1.                                                     */
+  /* ALSO INCREMENTS THE UPC COUNT BY 1 IF NOT A DELETED UPC           */
+  /* CALL READ_READ NEXT RECORD                                        */
+  /*********************************************************************/
+  
+  PROCESS_UPC_REC: PROCEDURE;
+  
+  WRITE_UPC ='N';
+  IF SUBSTR(IN_REC,1,2)^= 'UN' THEN /* 06/24/94 PREBC */
+  IF (((REC_TYPE = 'B') | (REC_TYPE = 'C')) &
+       (REC_TYPE_TWO ^= 'BO')) THEN DO;
+     OICA.SYSTEM      = SUBSTR(IN_REC,2,2);
+     OICA.VENDOR      = SUBSTR(IN_REC,4,5);
+     OICA.ITEM        = SUBSTR(IN_REC,9,5);
+     UPC_CNT = UPC_CNT + 1;
+     END;
+  ELSE
+     IF REC_TYPE = 'U' THEN    /* REGULAR UPC */
+        IF SUBSTR(IN_REC,10,1) ^= 'N' & SUBSTR(IN_REC,10,1) ^= 'Y' THEN
+           IF SUBSTR(IN_REC,16,1) ^= 'D' &
+              SUBSTR(IN_REC,2,12) ^= '000000000000' THEN
+              DO;
+                 OICA.SYSTEM            = SUBSTR(IN_REC,2,2);
+                 OICA.VENDOR            = SUBSTR(IN_REC,4,5);
+                 OICA.ITEM              = SUBSTR(IN_REC,9,5);
+                 OICA.UPC_MAN_OVERIDE   = SUBSTR(IN_REC,15,1);
+  
+                 CALL INCREMENT_UPC_CNT;              /* PRTJZ 3/2/94 */
+  
+           END;
+           ELSE
+              DO;
+                  DELETED_A_UPC = TRUE;
+                  DELETE_UPC_CNT = DELETE_UPC_CNT + 1;
+              END;
+        ELSE  /* SUPRESSED UPC */
+           IF SUBSTR(IN_REC,11,1) ^= 'D' &
+              SUBSTR(IN_REC,2,8) ^= '00000000' THEN
+              DO;
+                 OICA.SYSTEM = SUBSTR(IN_REC,2,2);
+                 OICA.VENDOR = '00001';
+                 OICA.ITEM   = SUBSTR(IN_REC,4,5);
+                 OICA.UPC_MAN_OVERIDE = SUBSTR(IN_REC,10,1);
+  
+                 CALL INCREMENT_UPC_CNT;              /* PRTJZ 3/2/94 */
+  
+              END;
+           ELSE
+              DO;
+                 DELETED_A_UPC = TRUE;
+                 DELETE_UPC_CNT = DELETE_UPC_CNT + 1;
+              END;
+  
+        CALL UPC_ADJUSTMENT;                          /* PRTJZ 3/2/94 */
+  
+  
+  END PROCESS_UPC_REC;
+  
+  
+ 1/*********************************************************************/
+  /* CLEAR THE PRICE/SAVINGS VARIABLES                                 */
+  /*********************************************************************/
+  
+  CLEAR_PRICE_SAVINGS_VARIABLES: PROCEDURE;
+  
+  DCL I                     FIXED BIN(15) INIT(0);
+  
+  COMMON(13).VALUE,                                /* PRTJZ 3/8/94 */
+  VARIABLE(13).VALUE = '';
+  
+  DO I = 19 TO 21;
+     COMMON(I).VALUE = '';
+     VARIABLE(I).VALUE = '';
+  END;
+  
+  /*VARIABLE(13).VALUE = ''                           PRTJZ 3/8/94 */
+  /*VARIABLE(19).VALUE = ''                                        */
+  /*VARIABLE(20).VALUE = ''                                        */
+  /*VARIABLE(21).VALUE = ''                                        */
+  
+  /*COMMON(13).VALUE   = ''                                        */
+  /*COMMON(19).VALUE   = ''                                        */
+  /*COMMON(20).VALUE   = ''                                        */
+  /*COMMON(21).VALUE   = ''                                        */
+  
+  OICA.ICA_RECIPE.PRICE           = FALSE;
+  OICA.ICA_RECIPE.BLANK_VARIABLE1 = FALSE;
+  OICA.ICA_RECIPE.BLANK_VARIABLE2 = FALSE;
+  OICA.ICA_RECIPE.BLANK_VARIABLE3 = FALSE;
+  
+  END CLEAR_PRICE_SAVINGS_VARIABLES;
+  
+  
+1 /*********************************************************************/
+  /* PROCESS_BRAND_CATEGORY INPUT FILE                                 */
+  /*********************************************************************/
+  
+  PROCESS_BRAND_CATEGORY: PROCEDURE;
+  
+  DO WHILE ( (REC_TYPE ^= 'B') & (REC_TYPE ^= 'C') &
+             (REC_TYPE ^= 'I') & (REC_TYPE ^= 'E') &
+             (^EOF_IMWFILE) );
+     CALL PROCESS_VARIABLES;
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM PROCESS_BRAND')(A) */
+     CALL READ_IMWFILE;
+  END;
+  
+  END PROCESS_BRAND_CATEGORY;
+  
+  
+1 /*********************************************************************/
+  /* GET ADV SHOP DOMINANCE CODE                                       */
+  /*********************************************************************/
+  
+  GET_ADV_SHOP_DOMCODE: PROCEDURE;
+  
+  DCL I                            FIXED BIN(15) INIT(0);
+  
+   /* IF added PRJDH LVL 009. PROC cannot be called for France */
+  /* IF FLG_FRENCH_PROCESSING = '0'B THEN
+    CALL CLEAN_QUESTION_VALUE; */  /* PRJDH 005 */
+  
+  /* PUT SKIP EDIT('IN GET_ADV_SHOP_DOMCODE PROCEDURE')(A) */
+  WAND_ANSWER       = SUBSTR(QUESTION_VALUES,ADV_SHOP_DOM_QUEST#,1) ;
+  
+  DO I = 1 TO NUM_OF_ADV_SHOP_CODES WHILE(WAND_ANSWER ^=
+                                          ADV_SHOP_MAP(I).WAND_CODE);
+  END ;
+  
+  IF I > NUM_OF_ADV_SHOP_CODES THEN DO ;
+     PUT SKIP EDIT('*** ERROR *** ')               (A)
+                  (WAND_ANSWER)                       (A)
+                  (' IS AN INVALID DOM CODE')      (A) ;
+     STOP ;
+  END ;
+  
+  OICA.DOMINANC_CODE = ADV_SHOP_MAP(I).ACTUAL_CODE;
+  
+  /* PUT SKIP EDIT('ADV_SHOP WAND ANSWER ')        (A)
+               (WAND_ANSWER)                    (A)
+               (' CONVERTED TO ')               (A)
+               (OICA.DOMINANC_CODE)             (A) */
+  
+  /* SELECT ( SUBSTR(QUESTION_VALUES,1,1) )     03/10/94 PREBC */
+  /*  SELECT ( SUBSTR(QUESTION_VALUES,ADV_SHOP_DOM_QUEST#,1) )
+     WHEN ('A') OICA.DOMINANC_CODE         ='C'
+     WHEN ('B') OICA.DOMINANC_CODE         ='A'
+     WHEN ('C') OICA.DOMINANC_CODE         ='Q'
+     WHEN ('D') OICA.DOMINANC_CODE         ='B'
+   END  03/13/94 PREBC */
+  
+  /*                                                  PRTJZ 3/8/94 */
+  /*IF SUBSTR(QUESTION_VALUES,1,1) = 'A' THEN                      */
+  /*     OICA.DOMINANC_CODE = 'B'            PRKMH 05-21-93        */
+  /*   OICA.DOMINANC_CODE = 'C'                                    */
+  /*ELSE                                                           */
+  /*   IF SUBSTR(QUESTION_VALUES,1,1) = 'B' THEN                   */
+  /*      OICA.DOMINANC_CODE = 'A'                                 */
+  /*   ELSE                                                        */
+  /*      IF SUBSTR(QUESTION_VALUES,1,1) = 'C' THEN                */
+  /*         OICA.DOMINANC_CODE = 'Q'                              */
+  /*      ELSE                                                     */
+  /*         IF SUBSTR(QUESTION_VALUES,1,1) = 'D' THEN             */
+  /*            /*OICA.DOMINANC_CODE = 'C'          PRKMH 05-21-93 */
+  /*            OICA.DOMINANC_CODE = 'B'                           */
+  
+  END GET_ADV_SHOP_DOMCODE;
+  
+  
+1 /*********************************************************************/
+  /* GET DISPWKLY DOMCODE                                             */
+  /*********************************************************************/
+  /* CALLED BY FORMAT_OCAFILE, THIS PROCEDURE ASSIGNS NUMERIC VALUES   */
+  /* TO OICA.DOMINANC_CODE.                                            */
+  /*********************************************************************/
+  
+  GET_DISPWKLY_DOMCODE: PROCEDURE;
+    /* IF added PRJDH LVL 009. PROC cannot be called for France */
+  /* IF FLG_FRENCH_PROCESSING = '0'B THEN
+        CALL CLEAN_QUESTION_VALUE; */   /* PRJDH 005 */
+  WAND_ANSWER       = SUBSTR(QUESTION_VALUES,DISPWKLY_DOM_QUEST#,1) ;
+  
+  DO I = 1 TO NUM_OF_DISPWKLY_CODES WHILE(WAND_ANSWER ^=
+                                          DISPWKLY_MAP(I).WAND_CODE);
+  END ;
+  
+  
+  IF I >  NUM_OF_DISPWKLY_CODES THEN DO ;
+     PUT SKIP EDIT('*** ERROR *** ')               (A)
+                  (WAND_ANSWER)                       (A)
+                  (' IS AN INVALID DOM CODE')      (A) ;
+     STOP ;
+  END ;
+  
+  OICA.DOMINANC_CODE = DISPWKLY_MAP(I).ACTUAL_CODE;
+  
+  
+  /* PUT SKIP EDIT('DISPLWKLY WAND ANSWER ')       (A)
+               (WAND_ANSWER)                    (A)
+               (' CONVERTED TO ')               (A)
+               (OICA.DOMINANC_CODE)             (A) */
+  
+  
+  /* SELECT ( SUBSTR(QUESTION_VALUES,1,1) )     03/10/94 PREBC */
+  /* SELECT ( SUBSTR(QUESTION_VALUES,DISPWKLY_DOM_QUEST#,1) )
+     WHEN ('A') OICA.DOMINANC_CODE          = '1'
+     WHEN ('B') OICA.DOMINANC_CODE          = '3'
+     WHEN ('C') OICA.DOMINANC_CODE          = '7'
+     WHEN ('D') OICA.DOMINANC_CODE          = '5'
+     WHEN ('E') OICA.DOMINANC_CODE          = '2'
+  END     03/14/94 PREBC */
+  
+  END GET_DISPWKLY_DOMCODE;
+  
+1 /******************************************************************/
+  /* GET OTHER DOMINANCE CODE                                       */
+  /******************************************************************/
+  
+  GET_OTHER_DOMCODE: PROCEDURE;
+    /* IF added PRJDH LVL 009. PROC cannot be called for France */
+   /* IF FLG_FRENCH_PROCESSING = '0'B THEN
+      CALL CLEAN_QUESTION_VALUE; */   /* PRJDH 005 */
+  
+  WAND_ANSWER       = SUBSTR(QUESTION_VALUES,ADV_HOME_DOM_QUEST#,1) ;
+  
+  DO I = 1 TO NUM_OF_ADV_HOME_CODES WHILE(WAND_ANSWER ^=
+                                          ADV_HOME_MAP(I).WAND_CODE);
+  END ;
+  
+  IF I >  NUM_OF_ADV_HOME_CODES THEN DO ;
+     PUT SKIP EDIT('*** ERROR *** ')               (A)
+                  (WAND_ANSWER)                       (A)
+                  (' IS AN INVALID DOM CODE')      (A) ;
+     STOP ;
+  END ;
+  
+  OICA.DOMINANC_CODE = ADV_HOME_MAP(I).ACTUAL_CODE;
+  
+  
+  
+  /* SELECT ( SUBSTR(QUESTION_VALUES,2,1) )  */
+  /* SELECT ( SUBSTR(QUESTION_VALUES,FEATURE_DOM_QUEST#,1) )
+     WHEN ('A') OICA.DOMINANC_CODE = 'B'
+     WHEN ('B') OICA.DOMINANC_CODE = 'C'
+     WHEN ('C') OICA.DOMINANC_CODE = 'Q'
+  END 03/14/94 PREBC */
+  
+       /*DO                                                         */
+       /*  IF SUBSTR(QUESTION_VALUES,2,1) = 'A' THEN                */
+       /*     OICA.DOMINANC_CODE          = 'B'                     */
+       /*  IF SUBSTR(QUESTION_VALUES,2,1) = 'B' THEN                */
+       /*     OICA.DOMINANC_CODE          = 'C'                     */
+       /*  IF SUBSTR(QUESTION_VALUES,2,1) = 'C' THEN                */
+       /*     OICA.DOMINANC_CODE          = 'Q'                     */
+       /*END                                                        */
+  
+  END GET_OTHER_DOMCODE;
+  
+1 /*********************************************************************/
+  /* GET_UPC_DESCRIPT                                                  */
+  /*********************************************************************/
+  
+  GET_UPC_DESCRIPT: PROCEDURE;
+  
+  /* PUT SKIP EDIT ('IN UPC DESCRIPT')  (A)  */
+  
+  DICT.GENERATION = 0;                                    /*PRTJZ - 003*/
+  DICT.SYSTEM = OICA.SYSTEM;
+  DICT.VENDOR = OICA.VENDOR;
+  DICT.ITEM   = OICA.ITEM;
+  MARKET      = OICA.STORE / 100;
+  
+  CALL DCTREAD(ADDR(DICT),ERROR);
+  
+  IF ERROR = 0 THEN DO;
+     OICA.DESCRIPTION = DICT.DESCRIPTION;
+     GENERATION_9     = DICT.GENERATION;
+     OICA.GENERATION  = GENERATION_9;
+     OICA.KEYCAT      = DICT.KEYCAT;
+     END;
+  ELSE
+     DO;
+        OICA.GENERATION  = '1';
+        OICA.DESCRIPTION = 'NOT FOUND IN THE DICTIONARY';
+        OICA.KEYCAT      = 0;
+  
+        IF OICA.UPC_MAN_OVERIDE = 'N' THEN
+           UPC_NOTFND_DICT_SCAN = UPC_NOTFND_DICT_SCAN +1;
+        ELSE
+           UPC_NOTFND_DICT_MAN = UPC_NOTFND_DICT_MAN +1;
+     END;
+  
+  /* PUT SKIP EDIT ('CALLING CLEAR_UPC_VARIABLES')  (A)  */
+  
+  CALL CLEAR_UPC_VARIABLES;
+  
+  /* PUT SKIP EDIT ('LEAVING UPC DESCRIPT')  (A)  */
+  
+  END GET_UPC_DESCRIPT;
+  
+  
+1 /*********************************************************************/
+  /* CLEAR_UPC_VARIABLES                                               */
+  /*********************************************************************/
+  
+  CLEAR_UPC_VARIABLES: PROCEDURE;
+  
+  /* PUT SKIP EDIT ('IN CLEAR_UPC_VARIABLES')  (A) */
+  
+  VARIABLE_HOLD2(*) = FALSE;
+  VARIABLE_HOLD3    = FALSE;
+  
+  RECORD_LENGTH   = 0;
+  VARIABLE_LENGTH = 0;
+  VAR_VALUE_HOLD  = '';
+  VALUE_CHAR      = '';
+  W = 0;
+  
+  /* PUT SKIP EDIT ('LEAVING CLEAR_UPC_VARIABLES')  (A) */
+  
+  END CLEAR_UPC_VARIABLES;
+  
+  
+1 /*********************************************************************/
+  /* PROCESS_STATUS_FILE                                               */
+  /*********************************************************************/
+  
+  PROCESS_STATUS_FILE: PROCEDURE;
+  
+  /* NOTE: WHEN ACTIVATING AND TESTING THIS CODE, BE SURE THE STATUS */
+  /*       UPDATE HAS MARKET, STORE, ICA, STATUS, TERM, DEADWEEK,    */
+  /*       UPDATE ID, AND UPDATE DATE.                               */
+  
+  EOF_ISTXREF     = '0'B;
+  EOF_ISTATFL     = '0'B;
+  
+  ICA_STATUS_REC  = '';
+  STATUS_XREF_REC = '';
+  
+  OPEN FILE(ISTXREF);
+  
+  DO UNTIL( ( (XREF_STORE_NUM = OPROD.STORE) &
+              (XREF_WEEK_NUM = ORIGINAL_WEEK) )
+            | (EOF_ISTXREF) );
+     READ FILE(ISTXREF) INTO(STATUS_XREF_REC);
+  END;
+  
+  IF (EOF_ISTXREF) THEN DO;
+     PUT SKIP LIST
+        ('**ERROR**, STORE/WEEK PROCESSED NOT FOUND ON XREF FILE');
+     SIGNAL ERROR;
+     END;
+  ELSE DO;
+     /* ALLOCATE STATUS FILE */
+     DYNALLOC        = '';
+     DYNALLOC.DDNAME = 'ISTATFL';
+     DYNALLOC.LRECL  = '29';
+     DYNALLOC.DISP1  = 'OLD';
+     DYNALLOC.DSNAME = 'ICAAUDIT.TEST.S'||XREF_TRUE_MKT||XREF_WEEK_NUM;
+     RC = DYNAMAL(ADDR(DYNALLOC));
+  
+     IF RC > 0 THEN DO;
+        PUT SKIP LIST
+            ('FDBPCONV I 000 ABEND, DYNAMIC ALLOC ERROR-ISTATFL');
+        PUT SKIP LIST (DYNALLOC.ERROR_MSG);
+        SIGNAL ERROR;
+     END;
+  
+     OPEN FILE(ISTATFL);
+  
+     DO UNTIL ( (STAT_STORE_NUM = OPROD.STORE &
+                 STAT_ICA_NUM = OICA.ICA_NUMBER)
+              | EOF_ISTATFL );
+        READ FILE(ISTATFL) INTO(ICA_STATUS_REC);
+     END;
+  
+     IF (^EOF_ISTATFL) THEN DO;
+        STAT_CODE = '100';
+  
+        REWRITE FILE(ISTATFL)
+                FROM(ICA_STATUS_REC);
+  
+        CLOSE FILE(ISTXREF),
+              FILE(ISTATFL);
+  
+        /* UNALLOCATE STATUS FILE */
+        DYNALLOC.FUNCTION = '2';
+        RC = DYNAMAL(ADDR(DYNALLOC));
+  
+        IF RC > 0 THEN DO;
+           PUT SKIP LIST
+           ('**ERROR**, RETURN CODE FROM DYNAMAL FOR UNSTATUS FILE',RC);
+           PUT SKIP LIST (DYNALLOC.ERROR_MSG);
+           SIGNAL ERROR;
+        END;
+        END;
+     ELSE DO;
+        PUT SKIP LIST
+            ('**ERROR**, STORE/ICA PROCESSED NOT FOUND ON STAT FILE');
+        PUT SKIP LIST('ADD TO FILE1');
+  
+        CLOSE FILE(ISTATFL);
+        OPEN FILE(ISTATFL);
+  
+        /* ALLOCATE STATUS FILE */
+        DYNALLOC        = '';
+        DYNALLOC.DDNAME = 'ISTATFL';
+        DYNALLOC.LRECL  = '29';
+        DYNALLOC.DISP1  = 'MOD';
+        DYNALLOC.DISP2  = 'KEEP';
+        /* PUT SKIP LIST('ADD TO FILE2'); */
+        DYNALLOC.DSNAME = 'ICAAUDIT.TEST.S'||XREF_TRUE_MKT||
+                           XREF_WEEK_NUM;
+        /* PUT SKIP LIST('DSNAME =',DYNALLOC.DSNAME); */
+        RC = DYNAMAL(ADDR(DYNALLOC));
+  
+        IF RC > 0 THEN DO;
+           PUT SKIP LIST
+              ('**ERROR**, RETURN CODE FROM DYNAMAL FOR UNSTATUS FILE',
+                 RC);
+           PUT SKIP LIST (DYNALLOC.ERROR_MSG);
+           SIGNAL ERROR;
+        END;
+  
+        STAT_STORE_NUM = OPROD.STORE;
+        STAT_ICA_NUM = OPROD.ICA_NUMBER;
+        STAT_CODE = '100';
+  
+        WRITE FILE(ISTATFL)
+              FROM(ICA_STATUS_REC);
+  
+        CLOSE FILE(ISTXREF),
+              FILE(ISTATFL);
+  
+        /* UNALLOCATE STATUS FILE */
+        DYNALLOC.FUNCTION = '2';
+        RC = DYNAMAL(ADDR(DYNALLOC));
+     END;
+  END;
+  
+  END PROCESS_STATUS_FILE;
+  
+  
+1 /*********************************************************************/
+  /* FORMAT THE OCAFILE RECORD                                         */
+  /*********************************************************************/
+  /* MOVES THE VARIABLE AND COMMON ARRAY VALUES TO THE OCAFILE RECORD  */
+  /* STRUCTURE.                                                        */
+  /* CONCATENATES THE VARIABLES VALUES TO THE OCAFILE VARIABLE FIELD.  */
+  /* ALLOCATES THE OCAFILE(CONVERTED FILE).                            */
+  /* WRITES THE OS DATASET CONVERTED RECORD TO THE OCAFILE             */
+  /*********************************************************************/
+  
+  FORMAT_OCAFILE: PROCEDURE;
+  
+  DCL FACINGS_LENGTH                    FIXED BIN(15) INIT(7) ;
+  DCL F_POS                             FIXED BIN(15) INIT(0);
+  
+  DO I = 1 BY 1 TO 48;
+     IF COMMON(I).VALUE ^= '' THEN
+        VARIABLE(I).VALUE = COMMON(I).VALUE;
+  END;
+  
+  IF OICA.SOURCE_CODE = '00'X THEN
+     OICA.SOURCE_CODE = '40'X;
+  
+  IF OICA.DOMINANC_CODE = '00'X THEN
+     OICA.DOMINANC_CODE = '40'X;
+  
+  OICA.EVENT = EVENT_ID_TOTAL;
+  
+  OICA.QC_FLAG = '';
+  IF EAN_FEAT_MAP THEN
+     OICA.QC_FLAG = '1';                                   /*LVL004-EBC*/
+  OICA.WEEK = ORIGINAL_WEEK;
+  OPROD.WEEK = ORIGINAL_WEEK;
+  
+  VARIABLE_LENGTH = 0;
+  
+  IF COMMON(19).VALUE = 'MOTHR' THEN         /* 06/29/94 PREBC */
+     CALL PROCESS_MOTHR_RECORD ;
+  
+          /* FACINGS */
+  IF VARIABLE(1).VALUE ^= '' THEN
+  DO;
+     OICA.FACINGS                     = TRUE;
+     FACINGS_LENGTH                   = INDEX(VARIABLE(1).VALUE,' ')-1;
+     IF INDEX(VARIABLE(1).VALUE,'.') = 0 THEN
+        VALUE_CHAR = SUBSTR(VARIABLE(1).VALUE,FACINGS_LENGTH - 4,5);
+     ELSE
+        VALUE_CHAR                    = SUBSTR(VARIABLE(1).VALUE,1,4) ||
+                                        SUBSTR(VARIABLE(1).VALUE,6,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+          /* EXPOSURES */
+  IF VARIABLE(2).VALUE ^= '' THEN
+  DO;
+     OICA.EXPOSURES                   = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(2).VALUE,1,4);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 4;
+  END;
+  
+          /* UNITS DEEP */
+  IF VARIABLE(3).VALUE ^= '' THEN
+  DO;
+     OICA.UNITS_DEEP                  = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(3).VALUE,1,2);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 2;
+  END;
+  
+          /* UNITS HIGH */
+  IF VARIABLE(4).VALUE ^= '' THEN
+  DO;
+     OICA.UNITS_HIGH                  = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(4).VALUE,1,2);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 2;
+  END;
+  
+          /* SHELF INVENTORY */
+  IF VARIABLE(5).VALUE ^= '' THEN
+  DO;
+     OICA.SHELF_INVENTORY             = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(5).VALUE,1,5);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+  
+          /* SHELF CAPACITY */
+  IF VARIABLE(6).VALUE ^= '' THEN
+  DO;
+     OICA.SHELF_CAPACITY              = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(6).VALUE,1,5);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+          /* DISPLAY INVENTORY */
+  IF VARIABLE(7).VALUE ^= '' THEN
+  DO;
+     OICA.DISP_INVENTORY              = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(7).VALUE,1,5);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+          /* DISPLAY CAPACITY */
+  IF VARIABLE(8).VALUE ^= '' THEN
+  DO;
+     OICA.DISP_CAPACITY               = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(8).VALUE,1,5);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+          /* SHELF FEET */
+  IF VARIABLE(9).VALUE ^= '' THEN
+  DO;
+     OICA.SHELF_FEET                  = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(9).VALUE,1,5);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+  
+          /* AISLE FEET */
+  IF VARIABLE(10).VALUE ^= '' THEN
+  DO;
+     OICA.AISLE_FEET                  = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(10).VALUE,1,4) ||
+                                        SUBSTR(VARIABLE(10).VALUE,6,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+          /* SHELF NUMBER */
+  IF VARIABLE(11).VALUE ^= '' THEN
+  DO;
+     OICA.SHELF_NUMBER                = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(11).VALUE,1,3);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 3;
+  END;
+  
+          /* #SHELVES IN SECTION */
+  IF VARIABLE(12).VALUE ^= '' THEN
+  DO;
+     OICA.#SHELVES_IN_SECTION         = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(12).VALUE,1,2);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 2;
+  END;
+  
+          /* PRICE */
+  IF (VARIABLE(13).VALUE ^= ''| ICA_HOLD = 9 | ICA_HOLD = 1) THEN
+  DO;
+     OICA.PRICE                       = TRUE;
+     F_POS                            = INDEX(VARIABLE(13).VALUE,'F');
+     IF F_POS = 0 THEN
+        CALL PROCESS_PRICE ;
+     ELSE
+       VALUE_CHAR                     = SUBSTR(VARIABLE(13).VALUE,1,4) ||
+                                        SUBSTR(VARIABLE(13).VALUE,6,2) ;
+  
+     /*VALUE_CHAR                     = SUBSTR(VARIABLE(13).VALUE,1,4) ||
+                                        SUBSTR(VARIABLE(13).VALUE,6,2) */
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 6;
+  END;
+  
+  
+   /* PRODUCT ADJACENCY */
+  IF VARIABLE(14).VALUE ^= '' THEN
+  DO;
+     OICA.PRODUCT_ADJACENCY           = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(14).VALUE,1,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 1;
+  END;
+  
+          /* SECTION LOCATION */
+  IF VARIABLE(15).VALUE ^= '' THEN
+  DO;
+     OICA.SECTION_LOCATION            = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(15).VALUE,1,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 1;
+  END;
+  
+          /* DISPLAY LOCATION */
+  IF VARIABLE(16).VALUE ^= '' THEN
+  DO;
+     OICA.DISP_LOCATION               = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(16).VALUE,1,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 1;
+  END;
+  
+          /* DISPLAY TYPE */
+  IF VARIABLE(17).VALUE ^= '' THEN
+  DO;
+     OICA.DISP_TYPE                   = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(17).VALUE,1,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 1;
+  END;
+  
+  
+          /* STOCKING TYPE */
+  IF VARIABLE(18).VALUE ^= '' THEN
+  DO;
+     OICA.STOCKING_TYPE               = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(18).VALUE,1,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 1;
+  END;
+          /* BLANK VARIABLE 1 */
+  IF VARIABLE(19).VALUE ^= '' THEN
+  DO;
+     /* PUT SKIP EDIT('TOTAL VOL VAR ON')(A) */
+     /* PUT SKIP LIST('VARIABLE(19).VALUE = ',VARIABLE(19).VALUE); */
+     OICA.BLANK_VARIABLE1             = TRUE;
+       /**** COMMENTED OUT 03/10/94 ***
+     IF ((SUBSTR(VARIABLE(19).VALUE,1,1) = 'M') |
+         (SUBSTR(VARIABLE(19).VALUE,1,1) = 'S') |
+         (SUBSTR(VARIABLE(19).VALUE,1,1) = 'E'))
+        VALUE_CHAR                    = SUBSTR(VARIABLE(19).VALUE,1,5)
+     ELSE
+        VALUE_CHAR                    = SUBSTR(VARIABLE(19).VALUE,2,3) ||
+                                        SUBSTR(VARIABLE(19).VALUE,6,2)
+        **** COMMENTED OUT 03/10/94 ***/
+  
+     VALUE_CHAR                       = SUBSTR(VARIABLE(19).VALUE,1,5);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  
+  
+  END;
+  
+  
+  
+          /* BLANK VARIABLE 2 */
+  IF VARIABLE(20).VALUE ^= '' THEN
+  DO;
+     OICA.BLANK_VARIABLE2             = TRUE;
+  
+     IF SUBSTR(VARIABLE(20).VALUE,1,1) = 'B' |
+        SUBSTR(VARIABLE(20).VALUE,1,1) = 'N' THEN
+        VALUE_CHAR                    = SUBSTR(VARIABLE(20).VALUE,1,5);
+     ELSE
+        IF SUBSTR(VARIABLE(20).VALUE,1,5) ^= ' ' THEN
+           VALUE_CHAR                 =  SUBSTR(VARIABLE(20).VALUE,1,5);
+        ELSE IF SUBSTR(VARIABLE(20).VALUE,4,1) ^= ' ' THEN
+           VALUE_CHAR                 =  '0' ||
+                                         SUBSTR(VARIABLE(20).VALUE,1,4);
+        ELSE IF SUBSTR(VARIABLE(20).VALUE,3,1) ^= ' ' THEN
+           VALUE_CHAR                 =  '00' ||
+                                         SUBSTR(VARIABLE(20).VALUE,1,3);
+        ELSE IF SUBSTR(VARIABLE(20).VALUE,2,1) ^= ' ' THEN
+           VALUE_CHAR                 =  '000' ||
+                                         SUBSTR(VARIABLE(20).VALUE,1,2);
+        ELSE IF SUBSTR(VARIABLE(20).VALUE,1,1) ^= ' ' THEN
+           VALUE_CHAR                 =  '0000' ||
+                                         SUBSTR(VARIABLE(20).VALUE,1,1);
+        ELSE
+           VALUE_CHAR                 =  '00000';
+  
+   /* PIC_99999                        = VALUE_CHAR; */
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+  
+          /* BLANK VARIABLE 3 */
+  IF VARIABLE(21).VALUE ^= '' THEN
+  DO;
+     OICA.BLANK_VARIABLE3             = TRUE;
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 5;
+  END;
+  
+  
+          /* PRESENCE OF POS */
+  IF VARIABLE(22).VALUE ^= '' THEN
+  DO;
+     OICA.PRESENCE_OF_POS             = TRUE;
+     VALUE_CHAR                       = SUBSTR(VARIABLE(22).VALUE,1,1);
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD || VALUE_CHAR;
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + 1;
+  END;
+  
+          /* VARIABLE QUESTIONS */
+  IF VARIABLE(23).VALUE ^= '' THEN
+  DO;
+     /* PUT SKIP EDIT('QUEST VAR ON')(A) */
+     OICA.VARIABLE_QUESTIONS          = TRUE;
+     VAR_VALUE_HOLD                   = VAR_VALUE_HOLD ||
+                                        QUESTION_VALUES || '*';
+     W                                = LENGTH(QUESTION_VALUES);
+     VARIABLE_LENGTH                  = VARIABLE_LENGTH + W + 1;
+  END;
+  
+  
+  DO J = 24 BY 1 TO 48;
+     IF VARIABLE(J).VALUE ^= '' THEN
+     DO;
+        VARIABLE_HOLD2(J-23)          = TRUE;
+        VALUE_CHAR                    = SUBSTR(VARIABLE(J).VALUE,1,1);
+        VAR_VALUE_HOLD                = VAR_VALUE_HOLD || VALUE_CHAR;
+        VARIABLE_LENGTH               = VARIABLE_LENGTH + 1;
+     END;
+  END;
+  OICA.WEEK                           = ORIGINAL_WEEK;
+  OPROD.WEEK                          = ORIGINAL_WEEK;
+  
+  IF (ICA_SHORT_NAME = 'ADV-SHOP') THEN
+  DO;
+     OICA.SOURCE_CODE                 = 'S';
+     CALL GET_ADV_SHOP_DOMCODE;
+  END;
+  IF (ICA_SHORT_NAME = 'DISPWKLY') THEN
+     CALL GET_DISPWKLY_DOMCODE;
+  
+  IF (ICA_SHORT_NAME = 'FEATURE ') |
+     (ICA_SHORT_NAME = 'ADV-HOME') THEN
+  DO;
+     OICA.SOURCE_CODE                 = 'P';
+  
+  /* IF SUBSTR(QUESTION_VALUES,2,1) = 'D' THEN  03/14/94 PREBC */
+     IF SUBSTR(QUESTION_VALUES,ADV_HOME_DOM_QUEST#,1) = 'D' THEN
+        OICA.DOMINANC_CODE            = 'Q';
+     ELSE
+       IF OICA.WEEK < 750 THEN
+       /*  OICA.DOMINANC_CODE = SUBSTR(QUESTION_VALUES,2,1)   PREBC */
+           OICA.DOMINANC_CODE =
+                    SUBSTR(QUESTION_VALUES,ADV_HOME_DOM_QUEST#,1);
+       ELSE DO;
+           CALL GET_OTHER_DOMCODE;/* PRTJZ 3/8/94 */
+       END;
+  
+  
+       /*                                              PRTJZ 3/8/94 */
+       /*DO                                                         */
+       /*  IF SUBSTR(QUESTION_VALUES,2,1) = 'A' THEN                */
+       /*     OICA.DOMINANC_CODE          = 'B'                     */
+       /*  IF SUBSTR(QUESTION_VALUES,2,1) = 'B' THEN                */
+       /*     OICA.DOMINANC_CODE          = 'C'                     */
+       /*  IF SUBSTR(QUESTION_VALUES,2,1) = 'C' THEN                */
+       /*     OICA.DOMINANC_CODE          = 'Q'                     */
+       /*END                                                        */
+  
+     WRITE_PRIORWK = 'N';                           /* PRKMH 05-21-93 */
+     IF (ADV_HOME_DOM_QUEST# > 1) & ^EAN_FEAT_MAP &        /*LVL004-EBC*/
+        SUBSTR(QUESTION_VALUES,1,1) = 'B' THEN             /*LVL004-EBC*/
+     DO ;                                                  /*LVL004-EBC*/
+  /* IF SUBSTR(QUESTION_VALUES,1,1) = 'B' THEN DO;           COM004-EBC*/
+        OICA.WEEK                     = ORIGINAL_WEEK - 1;
+        OPROD.WEEK = ORIGINAL_WEEK - 1;
+        WRITE_PRIORWK                 = 'Y';         /* PRKMH 05-21-93 */
+     END;
+  END;
+  
+  /*-------------------------------------------------------------------*/
+  /* THIS ROUTINE IS INTENDED TO COPY FRENCH ICA #9 TO A MAXIMUM OF 3  */
+  /* SUBSEQUENT WEEKS AS ICA #7 (FEATURE) DEPENDING ON THE WAND ANSWER */
+  /*-------------------------------------------------------------------*/
+  
+  IF EAN_FEAT_MAP = '1'B THEN DO;                    /* PRTJZ 03-21-95 */
+     SELECT (SUBSTR(QUESTION_VALUES,1,1));           /* PRTJZ 03-21-95 */
+        WHEN ('A') WEEKS_COPIED = 1;                 /* PRTJZ 03-21-95 */
+        WHEN ('B') WEEKS_COPIED = 2;                 /* PRTJZ 03-21-95 */
+        WHEN ('C') WEEKS_COPIED = 3;                 /* PRTJZ 03-21-95 */
+     END;                                            /* PRTJZ 03-21-95 */
+     /* OICA.DOMINANC_CODE                              PRTJZ 03-21-95
+        (SUBSTR(QUESTION_VALUES,2,1));                  PRTJZ 03-21-95
+     OICA.SOURCE_CODE             = 'P';                PRTJZ 03-21-95 */
+     WRITE_POSTWK                 = 'Y';             /* PRTJZ 03-21-95 */
+     IF RC < WEEKS_COPIED THEN                       /* PREBC 12-02-95 */
+        RC= WEEKS_COPIED;                            /* PREBC 12-02-95 */
+                                                     /* PREBC 12-02-95 */
+  END;                                               /* PRTJZ 03-21-95 */
+  ELSE DO;                                           /* PRTJZ 03-22-95 */
+     WRITE_POSTWK                 = 'N';             /* PRTJZ 03-21-95 */
+     WEEKS_COPIED                 = '0';             /* PRTJZ 03-21-95 */
+  END;                                               /* PRTJZ 03-22-95 */
+  
+  /* PUT SKIP DATA(VAR_VALUE_HOLD) */
+  ICA_VALUE_HOLD                      = VAR_VALUE_HOLD;
+  OICA.ICA_VAR_LENGTH                 = VARIABLE_LENGTH;
+  
+  OICA.ICA_RECIPE.UNUSED_BITS         = VARIABLE_HOLD3;
+  
+  /* PUT SKIP EDIT('END OF FORMAT_OCAFILE')(A) */
+  
+  END FORMAT_OCAFILE;
+  
+  
+1 /*********************************************************************/
+  /* FORMAT OUT OF STOCK OUTPUT RECORD.                                */
+  /*********************************************************************/
+  
+  FORMAT_OSTKOUT: PROCEDURE;
+  
+  DCL 1 CNT_DESC       FIXED BIN(31) INIT(0);
+  DCL 1 HLD_DESC       CHAR(32) VARYING;
+  DCL 1 BLK_32         CHAR(32) INIT('');
+  
+  /* PUT SKIP EDIT('IN OUT OF STOCK PROCDEURE')(A) */
+  OICA.SYSTEM  = 0;
+  OICA.VENDOR  = 0;
+  OICA.ITEM    = 0;
+  OICA.UPC_MAN_OVERIDE = '';
+  OICA.DESCRIPTION     = '';
+  HLD_DESC = '';
+  
+  CNT_DESC = 1;
+  DO I = 2 BY 1 TO 52;
+     IF SUBSTR(IN_REC,I,1) ^= ' ' THEN
+        IF CNT_DESC < 32 THEN DO;
+           HLD_DESC = HLD_DESC || SUBSTR(IN_REC,I,1);
+           CNT_DESC = CNT_DESC + 1;
+        END;
+  END;
+  HLD_DESC = HLD_DESC || BLK_32;
+  
+  OICA.DESCRIPTION = SUBSTR(HLD_DESC,1,32);
+  
+  END FORMAT_OSTKOUT;
+  
+  
+ 1/*********************************************************************/
+  /* READ THE NEXT RECORD IN THE INPUT FILE                            */
+  /*********************************************************************/
+  
+  READ_IMWFILE: PROCEDURE;
+  
+  PREV_REC_TYPE     = SUBSTR(IN_REC,1,1);
+  PREV_REC_TYPE_TWO = SUBSTR(IN_REC,1,2);
+  
+  READ FILE(IMWFILE) INTO(IN_REC);
+  
+  IF ((SUBSTR(IN_REC,1,1) = '3F'X) |
+      (SUBSTR(IN_REC,1,2) = 'E*')) THEN                   /* PRTJZ-002 */
+                            /* 'E**********' = ENDING RECORD IN FRANCE */
+  DO ;
+     PIC_999999 =  OPROD.ICA_NUMBER ;
+     IN_REC = 'E' ||  PIC_999999 || '999999';
+  END ;
+  REC_TYPE     = SUBSTR(IN_REC,1,1);
+  REC_TYPE_TWO = SUBSTR(IN_REC,1,2);
+  
+  END READ_IMWFILE;
+  
+  
+1 /*********************************************************************/
+  /* WRITE_OCAFILE                                                     */
+  /*********************************************************************/
+  
+  WRITE_OCAFILE: PROCEDURE;
+  
+  CALL PRINT_OCAFILE ;
+  IF WRITE_UPC ='Y' THEN DO;
+     WRITE FILE(OCAFILE) FROM(OICA);
+  /* WRITE_UPC ='N'            03/27/94 PREBC */
+  END;
+  
+  END WRITE_OCAFILE;
+  
+  
+ 1/*********************************************************************/
+  /* WRITE_OPRODFL                                                     */
+  /*********************************************************************/
+  
+  WRITE_OPRODFL: PROCEDURE;
+  
+  WRITE FILE(OPRODFL) FROM(OPROD);
+  
+  END WRITE_OPRODFL;
+  
+  
+ 1/*********************************************************************/
+  /* WRITE_OPRIORWK                                                    */
+  /*********************************************************************/
+  
+  WRITE_OPRIORWK: PROCEDURE;
+  
+  IF WRITE_UPC = 'Y' THEN DO;
+     WRITE FILE(OPRIORWK) FROM(OICA);
+     WRITE_UPC = 'N';
+  END;
+  
+  WRITE_PRIORWK = 'N';
+  
+  END WRITE_OPRIORWK;
+  
+  
+ 1/*********************************************************************/
+  /* WRITE_OSTKOUT                                                     */
+  /*********************************************************************/
+  
+  WRITE_OSTKOUT: PROCEDURE;
+  
+  WRITE FILE(OSTKOUT) FROM(OICA);
+  
+  END WRITE_OSTKOUT;
+  
+  
+  
+ 1/*********************************************************************/
+  /* WRITE_OPOSTWK                                                     */
+  /*********************************************************************/
+  
+  WRITE_OPOSTWK: PROCEDURE;
+  
+  OICA.QC_FLAG = '2';                                      /*LVL004-EBC*/
+  IF WRITE_UPC = 'Y' THEN DO;
+     SELECT (WEEKS_COPIED);
+        WHEN (1) DO;
+           OICA.WEEK = OICA.WEEK + 1;
+           WRITE FILE(OPOSTWK1) FROM(OICA);
+        END;
+        WHEN (2) DO;
+           OICA.WEEK = OICA.WEEK + 1;
+           WRITE FILE(OPOSTWK1) FROM(OICA);
+           OICA.WEEK = OICA.WEEK + 1;
+           WRITE FILE(OPOSTWK2) FROM(OICA);
+        END;
+        WHEN (3) DO;
+           OICA.WEEK = OICA.WEEK + 1;
+           WRITE FILE(OPOSTWK1) FROM(OICA);
+           OICA.WEEK = OICA.WEEK + 1;
+           WRITE FILE(OPOSTWK2) FROM(OICA);
+           OICA.WEEK = OICA.WEEK + 1;
+           WRITE FILE(OPOSTWK3) FROM(OICA);
+        END;
+     END;
+  END;
+  
+  OICA.WEEK = ORIGINAL_WEEK;
+  END WRITE_OPOSTWK;
+  
+  
+1 /*********************************************************************/
+  /* INITALIZATION PROCESS                                             */
+  /*********************************************************************/
+  /* INITIALIZES THE THE VARIABLES AS WELL AS OPEN THE IMWFILE (RAW    */
+  /* DATA FILE).                                                       */
+  /* READS THE FIRST RECORD OF THE IMWFILE(RAW DATA FILE).             */
+  /* IF THE FILE IS EMPTY, THE ERROR HANDLING OCCURS IN HERE.          */
+  /*********************************************************************/
+  
+  INITIALIZE: PROCEDURE;
+  
+  OPEN FILE(IMWFILE);
+  /* OPEN FILE(OPOSTWK1);
+  OPEN FILE(OPOSTWK2);
+  OPEN FILE(OPOSTWK3);      NOT USED IN UK */
+  
+  ALLOCATE OICA;
+  ALLOCATE INFO;
+  OPROD = '';
+  
+  DO I = 1 BY 1 TO 48;
+     VARIABLE(I).VALUE = '';
+     COMMON(I).VALUE   = '';
+  END;
+  
+  VARIABLE_HOLD2(*) = '0'B;
+  VARIABLE_HOLD3    = '0'B;
+  
+  OPEN FILE(ICAFILE);
+  READ FILE(ICAFILE) INTO(INFO);
+  
+  DO WHILE (^EOF_ICAFILE);
+     INFO.ICA_VAR_LENGTH = 278;
+     EVENT_ID_TOTAL = EVENT_ID_TOTAL + 1;
+     READ FILE(ICAFILE) INTO(INFO);
+  END;
+  
+  CLOSE FILE(ICAFILE);
+  
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM INITIALIZE')(A)  */
+  CALL READ_IMWFILE;
+  IF (EOF_IMWFILE) THEN DO;
+     MSG_TXT = '*** ICBP020E I MSG 001. ABEND ''IMWFILE'' FILE IS' ||
+               'EMPTY. ***';
+     PUT SKIP LIST(MSG_TXT);
+     SIGNAL ERROR;
+  END;
+  
+  CALL LOAD_TRAN;
+  
+  PIC_999999 = DATE;
+  OPROD.RUN_DATE = PIC_999999;
+  PIC_9999 = SUBSTR(TIME,1,4);
+  OPROD.RUN_TIME = PIC_9999;
+  
+  
+  CALL DCTINI('0'B);
+  
+  END INITIALIZE;
+  
+1 /********************************************************************/
+  /* INCREMENT THE UPC COUNT                                          */
+  /********************************************************************/
+  /* CALLED BY PROCESS_UPC_REC TO INCREMENT BOTH THE DELETED UPC      */
+  /* COUNT AND THE UN-DELETED UPC COUNT BY 1.                         */
+  /********************************************************************/
+  
+  INCREMENT_UPC_CNT: PROCEDURE;
+  
+              UPC_CNT = UPC_CNT + 1;
+              WRITE_UPC ='Y';
+              IF OICA.UPC_MAN_OVERIDE = 'N' THEN
+                 SCANNED_UPC_CNT = SCANNED_UPC_CNT + 1;
+              IF OICA.UPC_MAN_OVERIDE = 'Y' THEN
+                 MANUAL_UPC_CNT = MANUAL_UPC_CNT + 1;
+  
+  END INCREMENT_UPC_CNT;
+  
+  
+1 /********************************************************************/
+  /*   UPC ADJUSTMENT                                                 */
+  /********************************************************************/
+  /*   CALLED BY PROCESS_UPC_REC TO ADJUST THE UPC BASED UPON THE     */
+  /*   VALUE OF OICA.VENDOR.                                          */
+  /********************************************************************/
+  
+  UPC_ADJUSTMENT: PROCEDURE;
+  
+        IF WRITE_UPC = 'Y' & OICA.SYSTEM = 00 THEN
+           DO;
+              IF (OICA.VENDOR >= 30) &
+                 (OICA.VENDOR <= 99) THEN
+                 DO;
+                    /*-----------------------------------------------*/
+                    /* IF REGULAR 8 DIGIT EAN:                       */
+                    /* THIS ASSIGNS THE VENDOR TO THE SYSTEM/COUNTRY */
+                    /* CODE AND THEN CHANCES VENDOR TO 00001.        */
+                    /*-----------------------------------------------*/
+                    OICA.SYSTEM = OICA.VENDOR;
+                    OICA.VENDOR = 1;
+                 END;
+              ELSE
+                 IF OICA.VENDOR < 30 THEN
+                    DO;
+                     /*-----------------------------------------------*/
+                     /* IF 8 DIGIT PRIVATE LABEL:                     */
+                     /* THIS ASSIGNS THE VENDOR TO THE SYSTEM/COUNTRY */
+                     /* CODE AND THEN CHANCES VENDOR TO 00001.        */
+                     /*-----------------------------------------------*/
+                       OICA.SYSTEM = 07;
+                       OICA.VENDOR  = 100 * OICA.STORE + OICA.VENDOR;
+                    END;
+           END;  /* WRITE_UPC = 'Y' & OICS.SYSTEM = 00  */
+  
+  END UPC_ADJUSTMENT;
+  
+1 /********************************************************************/
+  /*   PROCESS_M_RECORD                                               */
+  /********************************************************************/
+  
+  PROCESS_M_RECORD: PROCEDURE;
+  
+                 WRITE_UPC = 'N';
+                 DO UNTIL ( (REC_TYPE_TWO ^= 'SI') &
+                            (REC_TYPE_TWO ^= 'BO') &
+                            (REC_TYPE_TWO ^= 'NO') &
+                            (REC_TYPE_TWO ^= 'MB') &
+                            (REC_TYPE_TWO ^= 'MO') &
+                            (REC_TYPE_TWO ^= 'ED') &
+                            (^EOF_IMWFILE));
+                   IF REC_TYPE_TWO = 'SI' THEN DO;
+ -                        CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+ -                        COMMON(19).VALUE = 'SINGL';
+                          VARIABLE(19).VALUE = 'SINGL';
+                   END;
+                   IF REC_TYPE_TWO = 'MB' THEN
+                       DO;
+ -                        CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+ -                        COMMON(19).VALUE = 'MBUY1';
+                          VARIABLE(19).VALUE = 'MBUY1';
+                       END;
+                   IF REC_TYPE_TWO = 'ED' THEN
+                       DO;
+ -                        CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+                          COMMON(19).VALUE = 'EDLP ';
+                          VARIABLE(19).VALUE = 'EDLP ';
+                       END;
+                   IF REC_TYPE_TWO = 'BO' THEN
+                       DO;
+                          COMMON(20).VALUE = 'BONUS';
+                          VARIABLE(20).VALUE = 'BONUS';
+                       END;
+                   IF REC_TYPE_TWO = 'NO' THEN
+                       DO;
+                          COMMON(20).VALUE = 'NOBON';
+                          VARIABLE(20).VALUE = 'NOBON';
+                       END;
+                   IF REC_TYPE_TWO = 'MC' THEN
+                       DO;
+                          CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+                          COMMON(19).VALUE   = 'MCHCE';
+                          VARIABLE(19).VALUE = 'MCHCE';
+                       END;
+                   IF REC_TYPE_TWO = 'MP' THEN
+                       DO;
+                          CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+                          COMMON(19).VALUE   = 'MPROD';
+                          VARIABLE(19).VALUE = 'MPROD';
+                       END;
+                   IF REC_TYPE_TWO = 'MO' THEN DO;
+                          CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+                          COMMON(19).VALUE   = 'MOTHR';
+                          VARIABLE(19).VALUE = 'MOTHR';
+                       END;
+  /* PUT SKIP LIST('CALLING READ_IMWFILE FROM PROCESS_M_RECORD'); */
+                    CALL READ_IMWFILE;
+                 END;
+  END PROCESS_M_RECORD;
+  
+1 /********************************************************************/
+  /*   PROCESS_OTH_ICAS                                               */
+  /********************************************************************/
+  
+  PROCESS_OTH_ICAS: PROCEDURE ;
+  
+  DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'O') &
+             (REC_TYPE ^= 'M') & (REC_TYPE ^= 'B') &
+             (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') &
+             (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+             (^EOF_IMWFILE) );
+     CALL PROCESS_VARIABLES;
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM LOOP1')(A) */
+     CALL READ_IMWFILE;
+  END;
+  
+  DO WHILE ( (REC_TYPE ^= 'E') & (REC_TYPE ^= 'H') &
+             (REC_TYPE ^= 'I') &
+             (REC_TYPE_TWO ^= '01') &  /* 03/27/94 PREBC */
+             (REC_TYPE_TWO ^= '09') & (REC_TYPE_TWO ^= '13') &
+             (REC_TYPE_TWO ^= '15') & (REC_TYPE_TWO ^= '16') &
+             (REC_TYPE_TWO ^= '19') & (REC_TYPE_TWO ^= '20') &
+             (REC_TYPE_TWO ^= '21') & (REC_TYPE_TWO ^= '23') &
+             (^EOF_IMWFILE) );
+  
+        WRITE_UPC = 'N' ;  /* 04/19/94 PREBC */
+        IF ^EOF_IMWFILE THEN
+        DO ;
+         IF (((REC_TYPE = 'U') | (REC_TYPE = 'B') | (REC_TYPE = 'C')) &
+             (REC_TYPE_TWO ^= 'BO')) THEN
+           DO;
+                CALL PROCESS_UPC_REC;
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM LOOP2')(A) */
+                CALL READ_IMWFILE;
+                IF ((PREV_REC_TYPE = 'B') | (PREV_REC_TYPE ='C') &
+                    (PREV_REC_TYPE_TWO ^= 'BO')) THEN
+                       CALL PROCESS_BRAND_CATEGORY;
+           END;
+  
+           /* PROCESS LOW LEVEL VARIABLES BEFORE WRITING OUT    */
+           /* UPC RECORD.                                       */
+  
+           DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'O') &
+                    (REC_TYPE ^= 'M') & (REC_TYPE ^= 'B') &
+                    (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') &
+                    (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+                    (REC_TYPE_TWO ^= '09') & (REC_TYPE_TWO ^= '13') &
+                    (REC_TYPE_TWO ^= '15') & (REC_TYPE_TWO ^= '16') &
+                    (REC_TYPE_TWO ^= '23') & (^EOF_IMWFILE) );
+              CALL PROCESS_VARIABLES;
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM LOOP3')(A) */
+              CALL READ_IMWFILE;
+           END;
+  
+           IF WRITE_UPC = 'Y' THEN
+           DO;
+              CALL FORMAT_OCAFILE;
+              CALL GET_UPC_DESCRIPT;
+              IF WRITE_PRIORWK = 'Y' THEN           /* PRKMH 05-21-93 */
+                 CALL WRITE_OPRIORWK;               /* PRKMH 05-21-93 */
+              ELSE                                  /* PRKMH 05-21-93 */
+                 CALL WRITE_OCAFILE;
+           END;
+           ELSE
+              IF REC_TYPE  = 'O' THEN
+              DO;
+                 CALL FORMAT_OCAFILE;       /* PRKMH 05-21-93 */
+                 CALL CLEAR_UPC_VARIABLES;  /* PRKMH 05-21-93 */
+                 CALL FORMAT_OSTKOUT;       /* PRKMH 05-21-93 */
+                 CALL WRITE_OSTKOUT;        /* PRKMH 05-21-93 */
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM LOOP4')(A) */
+                 CALL READ_IMWFILE;
+              END;
+  
+              DELETED_A_UPC = FALSE;
+              END;
+        END;
+  
+  IF ^EOF_IMWFILE THEN
+     IF ((REC_TYPE = 'E' | REC_TYPE = 'I') &
+         (REC_TYPE_TWO ^= 'ED')) THEN
+     DO;
+        CALL PROCESS_ENDING_ICA;
+        IF REC_TYPE ^= 'I' THEN
+        DO;
+  /* PUT SKIP EDIT('CALLING READ_IMWFILE FROM LOOP4')(A) */
+           CALL READ_IMWFILE;
+        END;
+     END;
+  
+  END PROCESS_OTH_ICAS ;
+  
+  
+1 /********************************************************************/
+  /*   PROCESS_FR_OTH_ICAS                                            */
+  /********************************************************************/
+  
+  PROCESS_FR_OTH_ICAS: PROCEDURE ;
+  
+  DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'O') &
+             (REC_TYPE ^= 'M') & (REC_TYPE ^= 'B') &
+             (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') &
+             (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+             (^EOF_IMWFILE) );
+     CALL PROCESS_VARIABLES;
+     CALL READ_IMWFILE;
+  END;
+  
+  DO WHILE ( (REC_TYPE ^= 'E') & (REC_TYPE ^= 'H') &
+             (REC_TYPE ^= 'I') &
+             (REC_TYPE_TWO ^= '01') &
+             (REC_TYPE_TWO ^= '09') & (REC_TYPE_TWO ^= '13') &
+             (REC_TYPE_TWO ^= '15') & (REC_TYPE_TWO ^= '16') &
+             (REC_TYPE_TWO ^= '19') & (REC_TYPE_TWO ^= '20') &
+             (REC_TYPE_TWO ^= '21') & (REC_TYPE_TWO ^= '23') &
+             (^EOF_IMWFILE) );
+  
+  
+        WRITE_UPC = 'N' ;
+        IF ^EOF_IMWFILE THEN
+        DO ;
+           IF ( ((REC_TYPE = 'U') |
+                 (REC_TYPE = 'B') |
+                 (REC_TYPE = 'C')) &
+                 (REC_TYPE_TWO ^= 'BO')) THEN
+           DO;
+                CALL PROCESS_UPC_REC;
+                CALL READ_IMWFILE;
+                IF (((PREV_REC_TYPE = 'B') | (PREV_REC_TYPE ='C')) &
+                     (PREV_REC_TYPE_TWO ^='BO')) THEN
+                       CALL PROCESS_BRAND_CATEGORY;
+           END;
+  
+           /* PROCESS LOW LEVEL VARIABLES BEFORE WRITING OUT    */
+           /* UPC RECORD.                                       */
+  
+           DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'O') &
+                    (REC_TYPE ^= 'M') & (REC_TYPE ^= 'B') &
+                    (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') &
+                    (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+                    (REC_TYPE_TWO ^= '09') & (REC_TYPE_TWO ^= '15') &
+                    (REC_TYPE_TWO ^= '16') & (REC_TYPE_TWO ^= '23') &
+                    (^EOF_IMWFILE) );
+              CALL PROCESS_VARIABLES;
+              CALL READ_IMWFILE;
+           END;
+  
+           IF WRITE_UPC = 'Y' THEN
+           DO;
+              CALL FORMAT_OCAFILE;
+              CALL GET_UPC_DESCRIPT;
+              IF WRITE_PRIORWK = 'Y' THEN
+                 CALL WRITE_OPRIORWK;
+              ELSE
+              DO;
+                 CALL WRITE_OCAFILE;
+                 IF WRITE_POSTWK = 'Y' THEN
+                    CALL WRITE_OPOSTWK;
+              END;
+           END;
+           ELSE
+              IF REC_TYPE  = 'O' THEN
+              DO;
+                 CALL FORMAT_OCAFILE;
+                 CALL CLEAR_UPC_VARIABLES;
+                 CALL FORMAT_OSTKOUT;
+                 CALL WRITE_OSTKOUT;
+                 CALL READ_IMWFILE;
+              END;
+  
+           DELETED_A_UPC = FALSE;
+        END;
+  END;
+  
+  IF ^EOF_IMWFILE THEN
+     IF ((REC_TYPE = 'E' | REC_TYPE = 'I') &
+         (REC_TYPE_TWO ^= 'ED')) THEN
+     DO;
+        CALL PROCESS_ENDING_ICA;
+        IF REC_TYPE ^= 'I' THEN
+        DO;
+           CALL READ_IMWFILE;
+        END;
+     END;
+  
+  END PROCESS_FR_OTH_ICAS ;
+  
+  
+1 /********************************************************************/
+  /*   TRANS_ICA_NAME                                                 */
+  /*------------------------------------------------------------------*/
+  /*  THIS PROCEDURE IS INTENDED TO TRANSLATE ICA SHORN NAMES FROM    */
+  /*  THE LANGUAGE OF THE SELECTED COUNTRY TO ENGLISH.                */
+  /********************************************************************/
+  
+  TRANS_ICA_NAME: PROCEDURE ;
+  
+  DO I = 1 TO TRN_CNT;                               /* PRTJZ 3/17/94 */
+    IF ICA_SHORT_NAME = TRAN(I).EURO_PHRASE  THEN
+    DO;
+       ICA_SHORT_NAME = TRAN(I).ENGLISH_PHRASE;
+       I = TRN_CNT;
+    END;  /* ICA_SHORT_NAME = EURO_PHRASE  */
+  END;  /* I = 1 TO TRN_CNT) */
+  
+  /*  IF ICA_SHORT_NAME = 'ADVTHUIS' THEN                             */
+  /*   ICA_SHORT_NAME = 'ADV-HOME'                                    */
+  /*                                                                  */
+  /* IF ICA_SHORT_NAME = 'DAGKRANT' THEN                              */
+  /*    ICA_SHORT_NAME = 'FEATURE'                     PRTJZ 3/17/94  */
+  
+  
+  END TRANS_ICA_NAME;
+  
+1 /********************************************************************/
+  /*   PROCESS_SPCLPACK                                               */
+  /********************************************************************/
+  
+  PROCESS_SPCLPACK: PROCEDURE;
+  
+  DO UNTIL (((REC_TYPE = 'I') | (REC_TYPE = 'E') |
+             (REC_TYPE = 'H') | (EOF_IMWFILE)) &
+             (REC_TYPE_TWO ^= 'ED'));
+  
+     DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'I') &
+                (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+                (^EOF_IMWFILE) );
+        CALL PROCESS_VARIABLES;
+        CALL READ_IMWFILE;
+     END;
+  
+     IF ( (REC_TYPE = 'U') & (^EOF_IMWFILE) ) THEN DO;
+        CALL PROCESS_UPC_REC;
+        CALL READ_IMWFILE;
+     END;
+  
+     DO UNTIL (((REC_TYPE_TWO = '23' & PREV_REC_TYPE_TWO = '23') |
+                (REC_TYPE = 'H') | (REC_TYPE = 'I') |
+                (REC_TYPE = 'U') | (REC_TYPE = 'E') |
+                (EOF_IMWFILE)) & REC_TYPE_TWO ^= 'BO');
+        IF REC_TYPE ^= 'I' THEN DO ;
+           CALL PROCESS_VARIABLES;
+           CALL READ_IMWFILE;
+        END ;
+     END;
+  
+  /* IF PREV_REC_TYPE_TWO ^= '22' THEN
+        DELETED_A_UPC = TRUE */
+  
+     IF ( (^DELETED_A_UPC) & (UPC_CNT > 0) ) THEN DO;
+        CALL GET_UPC_DESCRIPT;
+        CALL FORMAT_OCAFILE;
+        CALL WRITE_OCAFILE;
+        QUESTION_VALUES=SUBSTR(QUESTION_VALUES,1,1) ;
+     END;
+  
+     DELETED_A_UPC = FALSE;
+  END;
+  
+  CALL CLEAR_UPC_VARIABLES;
+  
+  CALL PROCESS_ENDING_ICA;
+  IF REC_TYPE = 'E' & REC_TYPE_TWO ^='ED' THEN DO;
+     CALL READ_IMWFILE;
+  END;
+  
+  END PROCESS_SPCLPACK;
+  
+1 /*****************************************************************/
+  /*  LOAD_TRAN                                  PRTJZ 3/17/94     */
+  /*---------------------------------------------------------------*/
+  /*  LOADS THE TRANSLATION TABLE FROM THE ITRANFL CONTAINING      */
+  /*  EUROPEAN ---> ENGLISH TRANSLATIONS OF ICA SHORT NAMES.       */
+  /*****************************************************************/
+  LOAD_TRAN:PROC;
+  
+  ON ENDFILE(ITRANFL) EOF_ITRANFL = '1'B;
+  OPEN FILE(ITRANFL);
+  
+  TRN_CNT = 0;
+  
+  DO WHILE(^EOF_ITRANFL);
+     TRN_CNT = TRN_CNT + 1;
+     READ FILE(ITRANFL) INTO (TRAN(TRN_CNT));
+  END;  /* (^EOF_ITRANFL) */
+  
+  CLOSE FILE(ITRANFL);
+  
+  END LOAD_TRAN;
+  
+1 /*****************************************************************/
+  /*  PROCESS_FR_CAUSAL                                            */
+  /*---------------------------------------------------------------*/
+  /*  THIS PROCEDURE IS CALLED BY MAINLINE AND PROCESS THE FRENCH  */
+  /*  CAUSAL DATA SPECIFICALLLY.                                   */
+  /*****************************************************************/
+  
+  PROCESS_FR_CAUSAL: PROCEDURE;
+  
+  DCL FIRST_CAUSAL_ICA      BIT(1)   INIT('1'B);
+  DCL OUT_OF_STOCK_REC      BIT(1)   INIT('0'B);
+  
+  DO WHILE ( (REC_TYPE ^= 'E') & ^EOF_IMWFILE);
+  
+     IF ( (REC_TYPE = 'U') | (REC_TYPE ='O') ) THEN
+        DO;
+           IF ^FIRST_CAUSAL_ICA THEN DO;
+              IF OUT_OF_STOCK_REC THEN
+              DO ;
+                 CALL FORMAT_OSTKOUT ;
+                 CALL WRITE_OSTKOUT;
+              END;
+              ELSE DO;
+                 CALL FORMAT_OCAFILE ;
+                 CALL WRITE_OCAFILE;
+              END ;
+              FIRST_CAUSAL_ICA     = '1'B ;
+           END ;
+           CALL PROCESS_UPC_REC;
+           IF WRITE_UPC = 'Y' THEN
+              CALL GET_UPC_DESCRIPT;   /* 04/25/94 PREBC */
+           QUESTION_VALUES = '';
+  
+           DO J = 1 TO 48;
+              VARIABLE(J).VALUE = '';
+              COMMON(J).VALUE = '';
+           END;
+  
+           IF REC_TYPE ='O' THEN
+              OUT_OF_STOCK_REC = '1'B ;
+           ELSE
+              OUT_OF_STOCK_REC = '0'B ;
+  
+           CALL READ_IMWFILE;
+        END;  /* REC_TYPE = 'U' */
+     ELSE
+  
+        IF REC_TYPE_TWO = '13' THEN
+           DO;
+              /* PUT SKIP EDIT ('REC_TYPE_TWO = 13') (A) */
+              CALL PROCESS_VARIABLES;
+              CALL READ_IMWFILE;
+           END;  /* IF REC_TYPE_TWO = '13'  */
+        ELSE
+           IF ( (REC_TYPE = 'I') & (SUBSTR(IN_REC,16,1) = 'X') ) THEN
+              DO;
+                 /* PUT SKIP DATA(FIRST_CAUSAL_ICA) */
+                 IF FIRST_CAUSAL_ICA THEN
+                    FIRST_CAUSAL_ICA = '0'B;
+                 ELSE IF WRITE_UPC = 'Y' THEN DO;
+                    IF OUT_OF_STOCK_REC THEN
+                    DO ;
+                       CALL FORMAT_OSTKOUT ;
+                       CALL WRITE_OSTKOUT;
+                    END;
+                    ELSE DO;
+                       CALL FORMAT_OCAFILE ;
+                       CALL WRITE_OCAFILE;
+                    END ;
+                 END ;
+                 CALL PROCESS_FR_ICA_REC;
+                 CALL TRANS_ICA_NAME;
+                 CALL READ_IMWFILE;
+              END;  /* IF REC_TYPE = 'I'  */
+           ELSE
+              IF ( (REC_TYPE = 'I') & (SUBSTR(IN_REC,16,1) = 'U') ) THEN
+                 DO;
+                    CALL PROCESS_ENDING_ICA;
+                    RETURN;
+                 END;
+              ELSE
+              SELECT (REC_TYPE_TWO);
+                 WHEN ('19','20','21','23')
+                    DO;
+                       CALL PROCESS_VARIABLES;
+                       CALL READ_IMWFILE;
+                    END;
+              END;
+  
+  END; /*  REC_TYPE ^= 'E'  */
+  
+  IF REC_TYPE = 'E' & REC_TYPE_TWO ^= 'ED' THEN
+     CALL PROCESS_ENDING_ICA;
+  
+  /* PUT SKIP EDIT ('REC_TYPE = ')  (A)
+                (REC_TYPE )      (A) */
+  
+  IF ^FIRST_CAUSAL_ICA THEN
+  DO ;
+      IF OUT_OF_STOCK_REC THEN
+      DO ;
+         CALL FORMAT_OSTKOUT ;
+         CALL WRITE_OSTKOUT;
+      END;
+      ELSE DO;
+         CALL FORMAT_OCAFILE ;
+         CALL WRITE_OCAFILE;
+     END ;
+     CALL READ_IMWFILE;
+  END;
+  ELSE
+    CALL READ_IMWFILE;
+  
+  
+  END PROCESS_FR_CAUSAL;
+  
+1 /*****************************************************************/
+  /*  PROCESS_FR_ICA_REC                                           */
+  /*---------------------------------------------------------------*/
+  /*  THIS PROCEDURE PROCESSES THE FRENCH ICA REC.  IT IS THE SAME */
+  /*  AS PROCESS_ICA_REC EXCEPT THAT IT DOES NOT CLEAR THE PRICE,  */
+  /*  (COMMON(13).VALUE AND VARIABLE(13).VALUE).                   */
+  /*****************************************************************/
+  
+  PROCESS_FR_ICA_REC: PROCEDURE;
+  
+  PIC_999999        = SUBSTR(IN_REC,2,6);
+  OICA.ICA_NUMBER   = PIC_999999;
+  ICA_SHORT_NAME    = SUBSTR(IN_REC,8,8);
+  
+  OICA.WEEK = ORIGINAL_WEEK;
+  QUESTION_VALUES = '';
+  VAR_VALUE_HOLD  = '';           /* 03/27/94 PREBC */
+  
+  /*  OPROD.ICA_NUMBER  = PIC_999999              07/21/94 PRTJZ    */
+  OPROD.COLL_METHOD = SUBSTR(IN_REC,16,1);
+  /*PIC_999999      = SUBSTR(IN_REC,17,6)*/
+  /*OPROD.BEG_TIME  = PIC_999999*/
+  
+  OICA.ICA_RECIPE = FALSE;
+  DO J = 1  TO 12, 14 TO 48;
+     VARIABLE(J).VALUE = '';
+     COMMON(J).VALUE   = '';
+  END;
+  
+  QUESTION_VALUES = '';
+  
+  OICA.SOURCE_CODE   = '40'X;
+  OICA.DOMINANC_CODE = '40'X;
+  
+  OICA.WEEK   = ORIGINAL_WEEK;
+  OPROD.WEEK  = ORIGINAL_WEEK;
+  
+  ICA_HOLD    = OICA.ICA_NUMBER;
+  WEEK_HOLD   = OICA.WEEK;
+  STORE_HOLD  = OICA.STORE;
+  WRITE_PRIORWK = 'N';
+  
+  END PROCESS_FR_ICA_REC;
+  
+1 /*****************************************************************/
+  /*  PRINT_OCAFILE                                                */
+  /*---------------------------------------------------------------*/
+  PRINT_OCAFILE: PROCEDURE;
+  
+  DCL ST_PIC             PIC'99999' INIT(0);
+  DCL SYS_PIC            PIC'99' INIT(0);
+  DCL VEN_PIC            PIC'99999' INIT(0);
+  DCL ITM_PIC            PIC'99999' INIT(0);
+  DCL EVE_PIC            PIC'99999' INIT(0);
+  DCL KEY_PIC            PIC'9999' INIT(0);
+  DCL DOM_CODE           CHAR(1) INIT(' ') ;
+  DCL SRC_CODE           CHAR(1) INIT(' ') ;
+  DCL UPC                CHAR(12) INIT(' ');
+  DCL VAR_STR            CHAR(30) INIT(' ');
+  
+  SYS_PIC      = OICA.SYSTEM;
+  VEN_PIC      = OICA.VENDOR;
+  ITM_PIC      = OICA.ITEM;
+  KEY_PIC      = OICA.KEYCAT ;
+  EVE_PIC      = OICA.EVENT  ;
+  DOM_CODE     = OICA.DOMINANC_CODE ;
+  SRC_CODE     = OICA.SOURCE_CODE;
+  ST_PIC       = OICA.STORE ;
+  
+  VAR_STR      = SUBSTR(ICA_VALUE_HOLD,1,20);
+  
+  /* PUT SKIP EDIT ('**********************')         (A)
+                (ICA_SHORT_NAME)                   (A)
+                ('**********************')         (A) */
+  UPC          = SYS_PIC || VEN_PIC || ITM_PIC ;
+  
+  /* PUT SKIP EDIT(UPC)                      (A)
+                  (DOM_CODE)                 (COL(15),A)
+                  (VAR_STR)                  (COL(28),A)
+                  (SRC_CODE)                 (COL(60),A)
+                  (ST_PIC)                   (COL(75),A)
+                  (OICA.DESCRIPTION)         (COL(85),A) ;  */
+  
+  
+  END PRINT_OCAFILE;
+  
+1 /*****************************************************************/
+  /*  PROCESS_PRICE                                                */
+  /*---------------------------------------------------------------*/
+  PROCESS_PRICE: PROCEDURE;
+  
+  DCL PRICE_LENGTH                      FIXED BIN(15) INIT(0) ; /*PRTJZ*/
+  DCL DOLLARS_LENGTH                    FIXED BIN(15) INIT(0) ; /*PRTJZ*/
+  DCL CENTS_LENGTH                      FIXED BIN(15) INIT(0) ; /*PRTJZ*/
+  DCL DEC_PT_POS                        FIXED BIN(15) INIT(0) ; /*PRTJZ*/
+  DCL DOLLARS_VALUE                     PIC'9999';
+  DCL CENTS_VALUE                       CHAR(02) INIT('00') ;   /*PRTJZ*/
+  
+  DEC_PT_POS                       = INDEX(VARIABLE(13).VALUE,'.');
+  PRICE_LENGTH                     = INDEX(VARIABLE(13).VALUE,' ')-1;
+  IF PRICE_LENGTH = -1 THEN
+     PRICE_LENGTH                  = 7; /* IF NO SPACES FOUND */
+  IF DEC_PT_POS ^= 0 THEN
+     DO;
+        CENTS_LENGTH               = PRICE_LENGTH - DEC_PT_POS;
+        DOLLARS_LENGTH             = PRICE_LENGTH - (CENTS_LENGTH
+                                                     + 1);
+     END;
+  ELSE
+     DO;
+        CENTS_LENGTH               = 0;
+        DOLLARS_LENGTH             = PRICE_LENGTH;
+     END;
+  
+  DOLLARS_VALUE                    = SUBSTR(VARIABLE(13).VALUE,
+                                        1,DOLLARS_LENGTH);
+  
+  IF CENTS_LENGTH >= 2 THEN
+     CENTS_VALUE = SUBSTR(VARIABLE(13).VALUE,DEC_PT_POS + 1,2);
+  ELSE
+  IF CENTS_LENGTH = 1 THEN
+     CENTS_VALUE = SUBSTR(VARIABLE(13).VALUE,DEC_PT_POS + 1,1) || '0';
+  ELSE
+  IF CENTS_LENGTH < 1 THEN
+     CENTS_VALUE = '00';
+  
+     /* PUT SKIP DATA(DEC_PT_POS)
+        PUT SKIP DATA(PRICE_LENGTH)
+        PUT SKIP DATA(CENTS_LENGTH)
+        PUT SKIP DATA(CENTS_VALUE)
+        PUT SKIP DATA(DOLLARS_LENGTH)
+        PUT SKIP DATA(DOLLARS_VALUE) */
+  
+  VALUE_CHAR                       = DOLLARS_VALUE || CENTS_VALUE;
+  
+  END PROCESS_PRICE;
+  
+  PROCESS_MOTHR_RECORD: PROC ;
+  
+  OICA.ICA_RECIPE.PRICE = TRUE;
+  VAR_VALUE_HOLD        = VAR_VALUE_HOLD || '000000';
+  VARIABLE_LENGTH       = VARIABLE_LENGTH + 6;
+  
+  END PROCESS_MOTHR_RECORD ;
+  
+  /*-------------------------------------------------------------------*/
+  /* CLEAN_QUESTION_VALUE:   John D. Haro PRJDH   rev. 005             */
+  /* written on 7/29/96                                                */
+  /*   This procedure cleans the QUESTION_VALUES string of all invalid */
+  /* wand answers.  This is to handle cases where the wand user backs  */
+  /* out of a question to change thier answer.  The invalid answer     */
+  /* was previously being used as the correct answer and applied to    */
+  /* the data accordingly.  After this proc. only the correct answer   */
+  /* will remain.                                                      */
+  /*-------------------------------------------------------------------*/
+  CLEAN_QUESTION_VALUE: PROC ;
+  
+   SELECT (ICA_HOLD);
+     WHEN (1) NUM_QUEST = ADV_HOME_NUM_OF_QUEST;
+     WHEN (7) NUM_QUEST = ADV_SHOP_NUM_OF_QUEST;
+     WHEN (8) NUM_QUEST = DISPWKLY_NUM_OF_QUEST;  /* EBC - 8/30/96  */
+     WHEN (9) NUM_QUEST = FEATURE_NUM_OF_QUEST ;  /* EBC - 8/30/96  */
+     OTHERWISE
+     DO;
+      MSG_TXT = '** CALL TO CLEAN_QUESION_VALUE HAS INVALID ICA# **';
+      PUT SKIP LIST(MSG_TXT);
+      SIGNAL ERROR;
+     END;
+   END;
+  
+   QUESTION_LEN    = LENGTH(QUESTION_VALUES);
+   QUESTION_START  = QUESTION_LEN - NUM_QUEST  + 1;
+   QUESTION_VALUES = SUBSTR(QUESTION_VALUES,QUESTION_START,NUM_QUEST);
+  
+  END CLEAN_QUESTION_VALUE ;
+  
+  /*********************************************************************/
+  /*                   ERROR HANDLING                                  */
+  /*********************************************************************/
+  /* SETS END OF FILE SWITCH TO BOTH DATASETS IMWIFLE AND ICAFILE TO   */
+  /*   TRUE IF END OF FILE IS REACHED.                                 */
+  /*********************************************************************/
+  
+  ON ENDFILE(IMWFILE) EOF_IMWFILE = TRUE;
+  ON ENDFILE(ISTXREF) EOF_ISTXREF = '1'B;
+  ON ENDFILE(ISTATFL) EOF_ISTATFL = '1'B;
+  ON ENDFILE(ICAFILE) EOF_ICAFILE = TRUE;
+  
+  ON TRANSMIT(ICAFILE) BEGIN;
+    SELECT(ONCODE);
+      WHEN(42) DO;
+        MSG_TXT = '*** WARNING, AN ERROR OCCURED ON A READ OF THE ' ||
+                  'ICAFILE ***';
+        PUT SKIP LIST(MSG_TXT);
+        END;
+      OTHERWISE;
+    END;
+  END;
+  
+  ON ERROR SNAP BEGIN;
+    DCL ONCODE BUILTIN;
+    ON ERROR;                       /* IN CASE WE GET AN ERROR IN HERE */
+    IF ONCODE ^= 9 THEN             /* UNLESS SIGNAL ERROR WAS USED    */
+       PUT SKIP DATA;
+    SIGNAL ERROR;                    /* TERMINATE WITH CC=2000         */
+  END;                               /* OF THE ERROR UNIT              */
+  
+  
+1 /*********************************************************************/
+  /*              MAINLINE  PROCESSING                                 */
+  /*********************************************************************/
+  
+  /* EXPLICITLY OPEN OUTPUT FILES: */
+  OPEN FILE(OPRIORWK);  /*10*/
+  OPEN FILE(OCAFILE);  /*10*/
+  
+  CALL INITIALIZE;
+  /*
+  ADV_HOME_DOM_QUEST#,
+  ADV_SHOP_DOM_QUEST#,
+  DISPWKLY_DOM_QUEST#,
+  FEATURE_DOM_QUEST#             = 1 PREBC 08/08/94 */
+  
+  NUM_OF_ADV_HOME_CODES          = 3 ;
+  NUM_OF_ADV_SHOP_CODES          = 4 ;
+  NUM_OF_DISPWKLY_CODES          = 5 ;
+  
+  ADV_HOME_MAP(1).WAND_CODE      = 'A' ;
+  ADV_HOME_MAP(1).ACTUAL_CODE    = 'B' ;
+  ADV_HOME_MAP(2).WAND_CODE      = 'B' ;
+  ADV_HOME_MAP(2).ACTUAL_CODE    = 'C' ;
+  ADV_HOME_MAP(3).WAND_CODE      = 'C' ;
+  ADV_HOME_MAP(3).ACTUAL_CODE    = 'Q' ;
+  
+  ADV_SHOP_MAP(1).WAND_CODE      = 'A' ;
+  ADV_SHOP_MAP(1).ACTUAL_CODE    = 'C' ;
+  ADV_SHOP_MAP(2).WAND_CODE      = 'B' ;
+  ADV_SHOP_MAP(2).ACTUAL_CODE    = 'A' ;
+  ADV_SHOP_MAP(3).WAND_CODE      = 'C' ;
+  ADV_SHOP_MAP(3).ACTUAL_CODE    = 'Q' ;
+  ADV_SHOP_MAP(4).WAND_CODE      = 'D' ;
+  ADV_SHOP_MAP(4).ACTUAL_CODE    = 'B' ;
+  
+  DISPWKLY_MAP(1).WAND_CODE      = 'A' ;
+  DISPWKLY_MAP(1).ACTUAL_CODE    = '2' ;
+  DISPWKLY_MAP(2).WAND_CODE      = 'B' ;
+  DISPWKLY_MAP(2).ACTUAL_CODE    = '3' ;
+  DISPWKLY_MAP(3).WAND_CODE      = 'C' ;
+  DISPWKLY_MAP(3).ACTUAL_CODE    = '7' ;
+  DISPWKLY_MAP(4).WAND_CODE      = 'D' ;
+  DISPWKLY_MAP(4).ACTUAL_CODE    = '5' ;
+  DISPWKLY_MAP(5).WAND_CODE      = 'E' ;
+  DISPWKLY_MAP(5).ACTUAL_CODE    = '1' ;
+  
+  DO WHILE (^EOF_IMWFILE);
+     CALL PROCESS_HEADER_REC;          /* SINGLE HEADER PER TRANS FILE */
+     CALL READ_IMWFILE;
+  
+     DO UNTIL ( (REC_TYPE = 'H') | EOF_IMWFILE );
+        IF (REC_TYPE = 'I') THEN
+        DO;
+           CALL PROCESS_ICA_REC;             /* ICA THAT WAS COLLECTED */
+           CALL READ_IMWFILE;
+           IF OICA.ICA_NUMBER > 9 THEN       /* PREBC */
+              FLG_CUST_AUD_DATA = '1'B;
+           ELSE
+              FLG_CUST_AUD_DATA = '0'B;
+  
+        END;
+  
+        IF PREV_REC_TYPE ^= 'M' &
+           OICA.ICA_NUMBER ^= 9 THEN
+           CALL CLEAR_PRICE_SAVINGS_VARIABLES;
+  
+        DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'O') &
+                   (REC_TYPE ^= 'M') & (REC_TYPE ^= 'B') &
+                   (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') &
+                   (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+                   (REC_TYPE ^= 'S') & (REC_TYPE ^= 'N') &
+                   (^EOF_IMWFILE) );
+           CALL PROCESS_VARIABLES;
+           CALL READ_IMWFILE;
+        END;
+  
+        DO WHILE ( (REC_TYPE_TWO ^= 'E0') & (REC_TYPE ^= 'H') &
+                   (REC_TYPE_TWO ^= 'E#') &
+                   (REC_TYPE ^= 'I') &
+                   (REC_TYPE_TWO ^= '09') & (REC_TYPE_TWO ^= '13') &
+                   (REC_TYPE_TWO ^= '15') & (REC_TYPE_TWO ^= '16') &
+                   (REC_TYPE_TWO ^= '19') & (REC_TYPE_TWO ^= '20') &
+                   (REC_TYPE_TWO ^= '21') & (REC_TYPE_TWO ^= '23') &
+                   (^EOF_IMWFILE) );
+  
+   /**        PUT SKIP EDIT('%%%%%%%%%%%%%')(A); **/
+   /**        PUT SKIP EDIT('4/19/94 DEBUG')(A); **/
+   /**        IF REC_TYPE = 'M' THEN */
+   /**           CALL PROCESS_M_RECORD ; */
+        IF REC_TYPE_TWO = 'MB' |
+           REC_TYPE_TWO = 'SI' |
+           REC_TYPE_TWO = 'ED' |
+           REC_TYPE_TWO = 'NO' |
+           REC_TYPE_TWO = 'MO' |
+           REC_TYPE_TWO = 'BO' THEN
+               CALL PROCESS_M_RECORD;
+              WRITE_UPC = 'N'; /* 04/18/94 PREBC */
+  
+              IF ^EOF_IMWFILE THEN
+              DO;
+                 IF ( (REC_TYPE = 'U') |
+                      (REC_TYPE = 'B') | (REC_TYPE = 'C') ) THEN
+                 DO;
+                    CALL PROCESS_UPC_REC;
+                    CALL READ_IMWFILE;
+                    IF ( (PREV_REC_TYPE = 'B') |
+                         (PREV_REC_TYPE ='C') ) THEN
+                       CALL PROCESS_BRAND_CATEGORY;
+                 END;
+  
+              DO WHILE ( (REC_TYPE ^= 'U') & (REC_TYPE ^= 'O') &
+                       (REC_TYPE ^= 'M') & (REC_TYPE ^= 'B') &
+                       (REC_TYPE ^= 'C') & (REC_TYPE ^= 'I') &
+                       (REC_TYPE ^= 'S') & (REC_TYPE ^= 'N') &
+                       (REC_TYPE ^= 'H') & (REC_TYPE ^= 'E') &
+                       (REC_TYPE_TWO ^= '09') &
+                       (FLG_CUST_AUD_DATA | REC_TYPE_TWO ^= '13') &
+                       (REC_TYPE_TWO ^= '15') & (REC_TYPE_TWO ^= '16') &
+                       (REC_TYPE_TWO ^= '23') & (^EOF_IMWFILE) );
+                 CALL PROCESS_VARIABLES;
+                 CALL READ_IMWFILE;
+              END;
+  
+  
+         /**  PUT SKIP DATA(WRITE_UPC);               **/
+         /**  PUT SKIP DATA(REC_TYPE_TWO,REC_TYPE);   **/
+                 IF WRITE_UPC = 'Y' THEN
+                 DO;
+                    CALL FORMAT_OCAFILE;
+                    CALL GET_UPC_DESCRIPT;
+                    IF WRITE_PRIORWK = 'Y' THEN  /* PRKMH 05-21-93 */
+                       CALL WRITE_OPRIORWK;      /* PRKMH 05-21-93 */
+                    ELSE                         /* PRKMH 05-21-93 */
+                       CALL WRITE_OCAFILE;
+                 END;
+                 ELSE
+                    IF REC_TYPE  = 'O' THEN
+                    DO;
+                       CALL FORMAT_OCAFILE;       /* PRKMH 05-21-93 */
+                       CALL CLEAR_UPC_VARIABLES;  /* PRKMH 05-21-93 */
+           /** PUT SKIP EDIT('BEFORE CALL TO OSTKOUT')(A);     **/
+                       CALL FORMAT_OSTKOUT;       /* PRKMH 05-21-93 */
+                       CALL WRITE_OSTKOUT;        /* PRKMH 05-21-93 */
+                       CALL READ_IMWFILE;
+                    END;
+  
+                 DELETED_A_UPC = FALSE;
+              END;
+          /** PUT SKIP EDIT('4/19/94 DEBUG - END OF LOOP')(A); **/
+        END;
+  
+        IF ^EOF_IMWFILE THEN
+           IF REC_TYPE = 'E' | REC_TYPE = 'I' THEN
+           DO;
+              CALL PROCESS_ENDING_ICA;
+              IF REC_TYPE ^= 'I' THEN
+                 CALL READ_IMWFILE;
+           END;
+     END;
+  END;
+  
+  CLOSE FILE(IMWFILE);
+  CLOSE FILE(OPRIORWK); /*10*/
+  CLOSE FILE(OPRODFL);
+  CLOSE FILE(OCAFILE);
+  
+  END ICBP020E;
+  
+  
