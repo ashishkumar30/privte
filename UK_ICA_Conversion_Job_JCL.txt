@@ -1,0 +1,130 @@
+ //PRRPKUKC JOB 9186,'0,25,64',CLASS=X,MSGLEVEL=(1,0),
+ //         MSGCLASS=K,TIME=(,10),LINES=200
+ //*
+ //*********************************************************************
+ //JOBLIB   DD DSN=SYS2.PROGLIB,DISP=SHR
+ //         DD DSN=ORACLE.V10G.CMDLOAD,DISP=SHR
+ //         DD DSN=SYS2.CEE.SCEERUN,DISP=SHR
+ //         DD DSN=SYS2.CEE.SCEERUN2,DISP=SHR
+ //*********************************************************************
+ //* Binds created 2025-02-19 01.22.46 by GUTS.SYSAFF EUROREAD,GUTS
+ /*JBS    BIND  EUROREAD
+ /*JBS    BIND  GUTS
+ //********************************************************************
+ //***
+ //***            =============================================
+ //***             U K   R A W   D A T A   C O N V E R S I O N
+ //***            =============================================
+ //***
+ //***                 USER                 : U0221
+ //***                 STORE                : 14409
+ //***                 TRANSMISSION DATE    : 02-18-25
+ //***                 TRANSMISSION TIME    : 08:25:30
+ //***                 TRANSMISSION WEEK    : 2373
+ //***
+ //***
+ //*********************************************************************
+ //*       STEP01 - PUNCH THE ICA TRANSLATION FILE                    **
+ //*********************************************************************
+ //STEP01  EXEC GUTUUTIL,CONTROL=$
+ //SYSPRINT DD SYSOUT=*
+ //SYSPUNCH DD DISP=(NEW,PASS,DELETE),DSN=&TRANS,
+ //       UNIT=SYSSQ,SPACE=(TRK,(5,5),RLSE),
+ //       DCB=(LRECL=80,BLKSIZE=27920,RECFM=FB)
+ //SYSIN    DD *
+ $PUNCH UEF.UKTRANS
+ //*********************************************************************
+ //*  CHECK THE WAND FILE                                              *
+ //*********************************************************************
+ //CHECK    EXEC PGM=ICBP019E,COND=(0,NE),PARM='144092373'
+ //SYSOUT   DD SYSOUT=*
+ //IWANDFL  DD DISP=SHR,DSN=ICA.W2373.U0221.S14409.D250218.T082530
+ //SYSPRINT DD SYSOUT=*
+ //OERRLET  DD DISP=(NEW,PASS),DSN=&&ERRLET,
+ //         UNIT=SYSSQ,SPACE=(TRK,(20,5),RLSE),
+ //         DCB=(LRECL=80,BLKSIZE=8880,RECFM=FB)
+ //*********************************************************************
+ //*  SEND TERMINATION LETTER                                          *
+ //*********************************************************************
+ //SNDTERM  EXEC SORTDYN,COND=(2,GT,CHECK)
+ //SORTIN   DD *
+ SUBJECT: UK DATA CONVERSION PROB. WK=2373
+ TO: <ICAUKPR>
+  
+  
+ USER                 : U0221
+ STORE                : 14409
+ TRANSMISSION DATE    : 02-18-25
+ TRANSMISSION TIME    : 08:25:30
+ TRANSMISSION WEEK    : 2373
+  
+ FILE = ICA.W2373.U0221.S14409.D250218.T082530
+  
+ //    DD DSN=&&ERRLET,DISP=(OLD,DELETE)
+ /*
+ //SORTOUT DD SYSOUT=(F,GUTSMAIL),DEST=GUTS,DSN=&&F3213007
+ //SYSIN     DD *
+   SORT FIELDS=COPY
+ /*
+ //*********************************************************************
+ //*  SEND WARNING LETTER                                              *
+ //*********************************************************************
+ //SNDTERM  EXEC SORTDYN,COND=(1,NE,CHECK)
+ //SORTIN   DD *
+ SUBJECT: UK RAW DATA WARNING WEEK=2373
+ TO: <ICAUKPR>
+  
+ USER                 : U0221
+ STORE                : 14409
+ TRANSMISSION DATE    : 02-18-25
+ TRANSMISSION TIME    : 08:25:30
+ TRANSMISSION WEEK    : 2373
+  
+ FILE = ICA.W2373.U0221.S14409.D250218.T082530
+  
+ //    DD DSN=&&ERRLET,DISP=(OLD,DELETE)
+ /*
+ //SORTOUT DD SYSOUT=(F,GUTSMAIL),DEST=GUTS,DSN=&&F7893499
+ //SYSIN     DD *
+   SORT FIELDS=COPY
+ /*
+ //*
+ //**********************************************************************
+ //*       STEP02 - CONVERT THE MICROWAND DATA                        **
+ //*********************************************************************
+ //STEP02   EXEC PGM=ICBP020E,COND=(2,LE)
+ //SYSOUT   DD SYSOUT=*
+ //SYSPRINT DD SYSOUT=*
+ //DATABASE DD DISP=SHR,UNIT=3390,VOL=SER=DIVX01,
+ //         DSN=IRIMDICT.DICTUK(DICTUK)
+ /VSFILE    DATABASE,DIVX01,'IRIMDICT.DICTUK(DICTUK)',DISP=SHR
+ //IMWFILE  DD DSN=ICA.W2373.U0221.S14409.D250218.T082530,DISP=SHR
+ //ITRANFL  DD DSN=&TRANS,DISP=(OLD,PASS)
+ //ICAFILE  DD DUMMY
+ //OCAFILE  DD DISP=(MOD,CATLG),
+ //            DSN=ICA.UK.W2373.UKRISC.S14409,
+ //         UNIT=(ICA,1),SPACE=(TRK,(10,3),RLSE),
+ //         DCB=(LRECL=355,BLKSIZE=8906,RECFM=VB)
+ //OPRIORWK DD DISP=(MOD,CATLG),
+ //         DSN=ICA.UK.W2372.UKRISC.S14409,
+ //         UNIT=(ICA,1),SPACE=(TRK,(10,5),RLSE),
+ //         DCB=(LRECL=355,BLKSIZE=8906,RECFM=VB)
+ //OPRODFL  DD DISP=(MOD,CATLG),DSN=ICA.UPRODUCT.W2373,
+ //         UNIT=(ICA,1),SPACE=(TRK,(20,5)),
+ //         DCB=(LRECL=80,BLKSIZE=8880,RECFM=FB)
+ //OSTKOUT  DD DISP=(MOD,CATLG),DSN=ICA.OOS.W2373,
+ //         UNIT=(ICA,1),SPACE=(TRK,(20,10)),
+ //         DCB=(LRECL=355,BLKSIZE=8906,RECFM=VB)
+ //*********************************************************************
+ //*  APPEND RAW DATA FILE TO STORE/WEEK FILE                          *
+ //*********************************************************************
+ //APPEND EXEC PGM=SORT,REGION=6012K,COND=(0,NE)
+ //SYSOUT   DD SYSOUT=*
+ //SYSPRINT DD SYSOUT=*
+ //SORTIN   DD DISP=SHR,DSN=ICA.W2373.U0221.S14409.D250218.T082530
+ //SORTOUT  DD DISP=(MOD,CATLG),
+ //            DSN=ICA.RAW.W2373.S14409,
+ //            UNIT=(ICA,1),
+ //            SPACE=(TRK,(10,10),RLSE),
+ //            DCB=(RECFM=FB,LRECL=100,BLKSIZE=8900)
+   SORT    FIELDS=COPY
